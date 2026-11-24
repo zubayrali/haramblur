@@ -18,16 +18,12 @@ export interface EngineSession {
 	session: ort.InferenceSession;
 }
 
-const MAX_WASM_THREADS = 8;
-
-/** Whether WASM threading is safe in this context (needs SharedArrayBuffer). */
-export function wasmThreadsAvailable(): boolean {
-	return (
-		typeof crossOriginIsolated !== "undefined" &&
-		crossOriginIsolated === true &&
-		typeof SharedArrayBuffer !== "undefined"
-	);
-}
+// Extension pages report `crossOriginIsolated === true`, so the threaded WASM
+// build would spawn pthreads. Worker-in-worker pthread spawn inside Chrome
+// offscreen documents is fragile — a failed spawn surfaces as an abort in the
+// wasm glue and kills every inference. Single-threaded inference is ~110 ms
+// here, so threads stay off regardless of what the context reports.
+const WASM_THREADS = 1;
 
 /** Minimal WebGPU surface — the TS DOM lib in use lacks GPU typings. */
 interface GpuLike {
@@ -57,9 +53,7 @@ export async function createSession({
 	// Absolute extension URL — a relative path would resolve against the ort
 	// module's own directory and 404 (docs/ENGINE_NOTES.md).
 	ort.env.wasm.wasmPaths = wasmBase;
-	ort.env.wasm.numThreads = wasmThreadsAvailable()
-		? Math.min(Math.max(navigator.hardwareConcurrency || 1, 1), MAX_WASM_THREADS)
-		: 1;
+	ort.env.wasm.numThreads = WASM_THREADS;
 	ort.env.logLevel = "warning";
 
 	if ((await requestGpuAdapter()) != null) {
