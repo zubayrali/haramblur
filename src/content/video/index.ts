@@ -1,5 +1,5 @@
 import { sendMessage } from "../../shared/protocol";
-import { getSettings, watchSettings } from "../../shared/settings";
+import { getSettings, watchSettings } from "../../shared/settings-store";
 import { VideoManager } from "./manager";
 import type { VideoManagerDeps } from "./types";
 

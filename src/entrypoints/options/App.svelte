@@ -2,7 +2,7 @@
 	import { onMount } from "svelte";
 	import { browser } from "wxt/browser";
 	import { t } from "../../shared/i18n";
-	import { getSettings, settings, watchSettings } from "../../shared/settings";
+	import { getSettings, settings, watchSettings } from "../../shared/settings-store";
 	import type { Settings } from "../../shared/settings";
 	import AllowlistEditor from "../../ui/AllowlistEditor.svelte";
 	import Section from "../../ui/Section.svelte";

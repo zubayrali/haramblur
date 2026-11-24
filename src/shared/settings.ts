@@ -1,8 +1,9 @@
-import { browser } from "wxt/browser";
-import { storage } from "wxt/utils/storage";
-
 /**
- * HaramBlur v1 settings.
+ * HaramBlur v1 settings — types, defaults and the 0.2.x migration, with no
+ * storage access. Chrome offscreen documents have `chrome.runtime` but no
+ * `chrome.storage`, so engine code (host/worker) must import only this module;
+ * the storage-backed item lives in `settings-store.ts`, used by the
+ * background, content script and UI entrypoints.
  *
  * Versioned with WXT storage migrations. `hb-settings-v2` is stored under the
  * same `hb-settings` key the 0.2.x extension used in `chrome.storage.sync`, so
@@ -98,29 +99,3 @@ export function migrateLegacySettings(legacy: LegacySettings): Settings {
 		failClosed: DEFAULT_SETTINGS.failClosed,
 	};
 }
-
-/**
- * The settings item. `version: 2` makes WXT run `migrations[2]` on any value
- * stored by 0.2.x (which has no version metadata and is treated as v1).
- * `init` writes defaults for brand-new installs only.
- */
-export const settings = storage.defineItem<Settings>(SETTINGS_KEY, {
-	fallback: DEFAULT_SETTINGS,
-	init: () => DEFAULT_SETTINGS,
-	version: SETTINGS_VERSION,
-	migrations: {
-		// The stored value is a raw 0.2.x hb-settings object.
-		2: (oldValue: LegacySettings) => migrateLegacySettings(oldValue),
-	},
-});
-
-export async function getSettings(): Promise<Settings> {
-	return settings.getValue();
-}
-
-/** Subscribe to setting changes; fires with (newValue, oldValue). */
-export function watchSettings(cb: (newValue: Settings, oldValue: Settings) => void): () => void {
-	return settings.watch(cb);
-}
-
-export { browser };

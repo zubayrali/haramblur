@@ -1,5 +1,5 @@
 import { onMessage, type Verdict } from "../shared/protocol";
-import { getSettings, type Settings, watchSettings } from "../shared/settings";
+import { getSettings, type Settings, watchSettings } from "../shared/settings-store";
 import {
 	applyBlurStyles,
 	blurOnUncertainty,

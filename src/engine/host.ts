@@ -13,7 +13,7 @@ import type {
 	EngineStatus,
 	Verdict,
 } from "../shared/protocol";
-import { getSettings, type Settings } from "../shared/settings";
+import { DEFAULT_SETTINGS, type Settings } from "../shared/settings";
 import { LruCache } from "./cache";
 import { engineMachine } from "./lifecycle";
 import type { WorkerInMessage, WorkerOutMessage } from "./worker";
@@ -38,7 +38,7 @@ export interface EngineHostOptions {
 	/** Absolute extension URL of the shipped ORT WASM assets (`/ort/`). */
 	wasmBase: string;
 	spawnWorker?: () => WorkerHandle;
-	/** Used only when a request carries no settings (tests, Firefox fallback). */
+	/** Used only when a request carries no settings (tests). Defaults used otherwise. */
 	getSettings?: () => Promise<Settings>;
 	/** Pixel decode seam — tests substitute a fake (no ImageBitmap in Node). */
 	decodeRequest?: (request: EngineRequest) => Promise<ImageBitmap>;
@@ -79,7 +79,7 @@ async function fetchBitmap(url: string): Promise<ImageBitmap> {
 
 export function createEngineHost(opts: EngineHostOptions): EngineHost {
 	const spawn = opts.spawnWorker ?? defaultSpawn;
-	const getS = opts.getSettings ?? getSettings;
+	const getS = opts.getSettings ?? (async () => DEFAULT_SETTINGS);
 	const bootTimeoutMs = opts.bootTimeoutMs ?? BOOT_TIMEOUT_MS;
 	const inferTimeoutMs = opts.inferTimeoutMs ?? INFER_TIMEOUT_MS;
 	const cache = new LruCache<string, Verdict>(opts.cacheCap ?? VERDICT_CACHE_CAP);

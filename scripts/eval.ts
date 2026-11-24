@@ -209,7 +209,7 @@ async function main(): Promise<void> {
 			const precision = t.tp + t.fp > 0 ? t.tp / (t.tp + t.fp) : null;
 			const recall = t.tp + t.fn > 0 ? t.tp / (t.tp + t.fn) : null;
 			const fmt = (v: number | null) =>
-				v == null ? "  —  " : (v * 100).toFixed(0).padStart(4) + "%";
+				v == null ? "  —  " : `${(v * 100).toFixed(0).padStart(4)}%`;
 			console.log(
 				`  ${cls}: precision=${fmt(precision)} recall=${fmt(recall)} (tp=${t.tp} fp=${t.fp} fn=${t.fn})`,
 			);
