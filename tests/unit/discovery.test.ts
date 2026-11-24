@@ -40,6 +40,15 @@ describe("isClassifiableUrl", () => {
 	it("keeps blob: URLs", () => {
 		expect(isClassifiableUrl("blob:https://example.com/1234")).toBe(true);
 	});
+
+	it("rejects URLs that resolve to the page itself", () => {
+		// `<img src="">`/`src="/"` resolves to the document URL — HTML, not media.
+		expect(isClassifiableUrl("/")).toBe(false);
+		expect(isClassifiableUrl(location.href)).toBe(false);
+		expect(isClassifiableUrl(`${location.origin}${location.pathname}`)).toBe(false);
+		// Same origin, different path is still media.
+		expect(isClassifiableUrl(`${location.origin}/img.jpg`)).toBe(true);
+	});
 });
 
 describe("isTrackingPixel", () => {

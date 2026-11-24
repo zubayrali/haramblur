@@ -263,6 +263,28 @@ describe("portal lifecycle", () => {
 		expect(host.style.height).toBe("80px");
 	});
 
+	it("ignores document.body's clip — its overflow propagates to the viewport", () => {
+		// YouTube: body reports overflow:scroll (propagated to the viewport)
+		// while the real scroller is ytd-page-manager, and its border box is
+		// degenerate (h:0). Intersecting it would invert the clip and hide
+		// every region host — the blur would never paint.
+		document.body.style.overflowY = "scroll";
+		stubRect(document.body, { left: 0, top: -1031, width: 1713, height: 0 });
+		try {
+			const img = makeImg();
+			applyBlurMode(img, [det("FEMALE_BREAST_EXPOSED", 0.9, FACE_BOX)], "image", SETTINGS);
+			const host = regionHosts()[0] as HTMLElement;
+			expect(host.style.display).not.toBe("none");
+			expect(host.style.left).toBe("100px");
+			expect(host.style.top).toBe("50px");
+			expect(host.style.width).toBe("200px");
+			expect(host.style.height).toBe("100px");
+		} finally {
+			document.body.style.overflowY = "";
+			delete (document.body as { getBoundingClientRect?: unknown }).getBoundingClientRect;
+		}
+	});
+
 	it("prunes disconnected elements on the next sync", async () => {
 		const img = makeImg();
 		applyBlurMode(img, [det("FEMALE_BREAST_EXPOSED", 0.9, FACE_BOX)], "image", SETTINGS);
