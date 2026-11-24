@@ -56,6 +56,36 @@
 	"regionBlurHint": {
 		"message": "Blur only the detected areas instead of the whole image"
 	},
+	"smartCensor": {
+		"message": "Smart censor"
+	},
+	"smartCensorHint": {
+		"message": "Blur the whole thumbnail when regions get large, multiple women appear, or explicit content is found"
+	},
+	"escalateAreaPct": {
+		"message": "Whole-image threshold"
+	},
+	"wholeImages": {
+		"message": "Whole-image censor for images"
+	},
+	"wholeImagesHint": {
+		"message": "Always blur feed images entirely instead of region-blurring (videos keep region coverage)"
+	},
+	"coverageMode": {
+		"message": "Face coverage"
+	},
+	"coverageModeHint": {
+		"message": "How far a blurred face region expands"
+	},
+	"coverageFace": {
+		"message": "Face only"
+	},
+	"coverageHead": {
+		"message": "Head + hair"
+	},
+	"coverageBody": {
+		"message": "Head + body"
+	},
 	"facesToBlur": {
 		"message": "Faces to Blur"
 	},

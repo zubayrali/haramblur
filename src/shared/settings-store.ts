@@ -30,6 +30,8 @@ export const settings = storage.defineItem<Settings>(SETTINGS_KEY, {
 		3: (oldValue: Settings) => ({ ...DEFAULT_SETTINGS, ...oldValue }),
 		// v3 → v4: fill in regionBlur (and any other post-v3 additions).
 		4: (oldValue: Settings) => ({ ...DEFAULT_SETTINGS, ...oldValue }),
+		// v4 → v5: fill in coverageMode/smartCensor/escalateAreaPct/wholeImages.
+		5: (oldValue: Settings) => ({ ...DEFAULT_SETTINGS, ...oldValue }),
 	},
 });
 

@@ -56,6 +56,36 @@
 	"regionBlurHint": {
 		"message": "Tüm görsel yerine yalnızca algılanan bölgeleri bulanıklaştır"
 	},
+	"smartCensor": {
+		"message": "Akıllı sansür"
+	},
+	"smartCensorHint": {
+		"message": "Bölgeler büyüdüğünde, birden fazla kadın göründüğünde veya müstehcen içerik bulunduğunda küçük resmi tamamen bulandır"
+	},
+	"escalateAreaPct": {
+		"message": "Tam resim eşiği"
+	},
+	"wholeImages": {
+		"message": "Görsellerde tam sansür"
+	},
+	"wholeImagesHint": {
+		"message": "Akış görsellerini her zaman bölge bulanıklığı yerine tamamen bulandır (videolar bölge kapsamını korur)"
+	},
+	"coverageMode": {
+		"message": "Yüz kapsamı"
+	},
+	"coverageModeHint": {
+		"message": "Bulanık yüz bölgesinin ne kadar genişleyeceği"
+	},
+	"coverageFace": {
+		"message": "Sadece yüz"
+	},
+	"coverageHead": {
+		"message": "Baş + saç"
+	},
+	"coverageBody": {
+		"message": "Baş + vücut"
+	},
 	"facesToBlur": {
 		"message": "Bulanıklaştırılacak yüzler"
 	},

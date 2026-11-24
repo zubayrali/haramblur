@@ -56,6 +56,36 @@
 	"regionBlurHint": {
 		"message": "پوری تصویر کے بجائے صرف شناخت شدہ علاقوں کو دھندلا کریں"
 	},
+	"smartCensor": {
+		"message": "سمارٹ سنسر"
+	},
+	"smartCensorHint": {
+		"message": "جب علاقے بڑے ہوں، ایک سے زیادہ خواتین آئیں یا فحش مواد ملے تو تھمب نیل مکمل دھندلا دیں"
+	},
+	"escalateAreaPct": {
+		"message": "مکمل تصویر کی حد"
+	},
+	"wholeImages": {
+		"message": "تصاویر کی مکمل سینسرنگ"
+	},
+	"wholeImagesHint": {
+		"message": "خبر فید کی تصاویر ہمیشہ علاقے کے بجائے مکمل دھندلا دیں (ویڈیوز علاقے کی کوریج برقرار رکھتی ہیں)"
+	},
+	"coverageMode": {
+		"message": "چہرے کی کوریج"
+	},
+	"coverageModeHint": {
+		"message": "دھندلے چہرے کے علاقے کی توسیع کا دائرہ"
+	},
+	"coverageFace": {
+		"message": "صرف چہرہ"
+	},
+	"coverageHead": {
+		"message": "سر + بال"
+	},
+	"coverageBody": {
+		"message": "سر + جسم"
+	},
 	"facesToBlur": {
 		"message": "چہرے کو دھندلا کرنا"
 	},

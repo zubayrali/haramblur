@@ -10,7 +10,10 @@
  * the v1 → v2 migration runs on the user's real stored object on update.
  */
 export const SETTINGS_KEY = "sync:hb-settings";
-export const SETTINGS_VERSION = 4;
+export const SETTINGS_VERSION = 5;
+
+/** How far a blurred face region expands to cover hair/neck/body. */
+export type CoverageMode = "face" | "head" | "body";
 
 export interface Settings {
 	/** Master on/off switch (old `status`). */
@@ -54,6 +57,28 @@ export interface Settings {
 	 * region layout can't be mirrored.
 	 */
 	regionBlur: boolean;
+	/**
+	 * How far a blurred female/male face box expands past the detected face:
+	 * `face` = detector box only, `head` = +hair/neck, `body` = estimated
+	 * head-and-torso silhouette.
+	 */
+	coverageMode: CoverageMode;
+	/**
+	 * Escalate region blur to a whole-element censor when the content is
+	 * "too much to localize": explicit (`CORE_EXPOSED`) detections, ≥2
+	 * female faces, or blur regions covering more than `escalateAreaPct`
+	 * of the frame.
+	 */
+	smartCensor: boolean;
+	/** Fraction (0..1) of the frame the union of blur regions may cover
+	 * before `smartCensor` escalates to whole-element blur. */
+	escalateAreaPct: number;
+	/**
+	 * Always whole-element censor images (feed thumbnails, background
+	 * images) instead of region-blurring — calmer browsing; videos keep
+	 * region coverage.
+	 */
+	wholeImages: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -73,6 +98,10 @@ export const DEFAULT_SETTINGS: Settings = {
 	allowlist: [],
 	failClosed: true,
 	regionBlur: true,
+	coverageMode: "head",
+	smartCensor: true,
+	escalateAreaPct: 0.3,
+	wholeImages: false,
 };
 
 /** Shape stored by HaramBlur 0.2.x under `chrome.storage.sync["hb-settings"]`. */
@@ -121,5 +150,9 @@ export function migrateLegacySettings(legacy: LegacySettings): Settings {
 			: [],
 		failClosed: DEFAULT_SETTINGS.failClosed,
 		regionBlur: DEFAULT_SETTINGS.regionBlur,
+		coverageMode: DEFAULT_SETTINGS.coverageMode,
+		smartCensor: DEFAULT_SETTINGS.smartCensor,
+		escalateAreaPct: DEFAULT_SETTINGS.escalateAreaPct,
+		wholeImages: DEFAULT_SETTINGS.wholeImages,
 	};
 }
