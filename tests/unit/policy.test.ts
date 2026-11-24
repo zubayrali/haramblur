@@ -44,7 +44,17 @@ describe("decide", () => {
 	it("always blurs exposed nudity regardless of gender toggles", () => {
 		const dets = [det("FEMALE_BREAST_EXPOSED", 0.5)];
 		expect(decide(dets, { ...base, blurFemale: false, blurMale: false })).toBe("blur");
-		expect(decide([det("MALE_GENITALIA_EXPOSED", 0.5)], base)).toBe("blur");
+		expect(decide([det("MALE_GENITALIA_EXPOSED", 0.6)], base)).toBe("blur");
+	});
+
+	it("genitalia classes need a higher absolute score (eval false-positive floor)", () => {
+		// Cat photo → MALE_GENITALIA_EXPOSED@0.50, Vermeer → @0.49: below the
+		// 0.55 floor these must not blur even though they clear the exposed bar.
+		expect(decide([det("MALE_GENITALIA_EXPOSED", 0.5)], base)).toBe("clear");
+		expect(decide([det("FEMALE_GENITALIA_EXPOSED", 0.5)], base)).toBe("clear");
+		expect(decide([det("MALE_GENITALIA_EXPOSED", 0.55)], base)).toBe("blur");
+		// The floor is absolute — it holds at maximum strictness too.
+		expect(decide([det("MALE_GENITALIA_EXPOSED", 0.5)], { ...base, strictness: 1 })).toBe("clear");
 	});
 
 	it("never blurs covered, non-gendered labels on their own", () => {

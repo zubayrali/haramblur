@@ -37,6 +37,19 @@ export function exposedThreshold(strictness: number): number {
 }
 
 /**
+ * Absolute minimum scores for labels whose moderate-confidence outputs are
+ * noise-dominated. The genitalia classes false-positive on animals and
+ * paintings (eval fixtures: a cat photo scores MALE_GENITALIA_EXPOSED@0.50,
+ * a Vermeer painting @0.49) while genuine exposures either score well above
+ * this bar or corroborate with other exposed classes — so the floor applies
+ * regardless of strictness.
+ */
+const LABEL_SCORE_FLOOR: Partial<Record<Detection["label"], number>> = {
+	FEMALE_GENITALIA_EXPOSED: 0.55,
+	MALE_GENITALIA_EXPOSED: 0.55,
+};
+
+/**
  * The score threshold a label must meet to cause a blur under these
  * settings, or null when the label can never blur (covered parts, gendered
  * classes whose toggle is off).
@@ -45,14 +58,19 @@ export function blurThresholdFor(
 	label: Detection["label"],
 	settings: PolicySettings,
 ): number | null {
-	if (LABEL_GROUPS.exposed.has(label)) return exposedThreshold(settings.strictness);
-	if (LABEL_GROUPS.female.has(label)) {
-		return settings.blurFemale ? faceThreshold(settings.strictness) : null;
+	let threshold: number | null;
+	if (LABEL_GROUPS.exposed.has(label)) {
+		threshold = exposedThreshold(settings.strictness);
+	} else if (LABEL_GROUPS.female.has(label)) {
+		threshold = settings.blurFemale ? faceThreshold(settings.strictness) : null;
+	} else if (LABEL_GROUPS.male.has(label)) {
+		threshold = settings.blurMale ? faceThreshold(settings.strictness) : null;
+	} else {
+		// Covered, non-gendered parts never cause a blur on their own.
+		return null;
 	}
-	if (LABEL_GROUPS.male.has(label)) {
-		return settings.blurMale ? faceThreshold(settings.strictness) : null;
-	}
-	return null;
+	const floor = LABEL_SCORE_FLOOR[label];
+	return floor != null && threshold != null ? Math.max(threshold, floor) : threshold;
 }
 
 export function decide(
