@@ -266,5 +266,38 @@
 	},
 	"feedbackEmail": {
 		"message": "ای میل"
+	},
+	"profiles": {
+		"message": "پری سیٹس"
+	},
+	"profilesHint": {
+		"message": "ایک کلک میں تیار ترتیبات — ایک منتخب کریں، پھر نیچے تفصیل سے تبدیل کریں۔"
+	},
+	"profile_balanced": {
+		"message": "متوازن"
+	},
+	"profile_gaze": {
+		"message": "نگاہ کی حفاظت"
+	},
+	"profile_recovery": {
+		"message": "بحالی شیلڈ"
+	},
+	"censorStyle": {
+		"message": "حجب کا انداز"
+	},
+	"censorStyleHint": {
+		"message": "محجوب علاقوں کو کیسے رنگا جائے۔ سادہ رنگ شکلیں مکمل چھپاتا ہے؛ شور اور پیٹرن بناوٹ دیتے ہیں۔"
+	},
+	"censorStyleBlur": {
+		"message": "فراسٹڈ دھندلاپن"
+	},
+	"censorStyleSolid": {
+		"message": "سادہ میٹ"
+	},
+	"censorStyleStatic": {
+		"message": "جامد شور"
+	},
+	"censorStylePattern": {
+		"message": "ہندسی نقشہ"
 	}
 }

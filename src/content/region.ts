@@ -112,7 +112,7 @@ export function blurRegionBoxes(
  * overcount (conservative: pushes toward whole-censor, never away). */
 export function boxesCoveredArea(boxes: readonly Detection["box"][]): number {
 	let area = 0;
-	for (const [x, y, w, h] of boxes) area += w * h;
+	for (const [, , w, h] of boxes) area += w * h;
 	return Math.min(1, area);
 }
 
@@ -306,6 +306,9 @@ const MAX_REGIONS = 16;
 const REGION_PAD = 0.04;
 /** `smartCensor`: this many blur-capable female faces → whole-element. */
 const SMART_CENSOR_MAX_FEMALE_FACES = 2;
+/** Normalized box covering the whole media — used for style-driven
+ * whole-element censors that paint through the portal. */
+const FULL_FRAME_BOX: Detection["box"] = [0, 0, 1, 1];
 /**
  * Explicit classes that always escalate to whole-element under `smartCensor`.
  * Breast exposure deliberately stays regional — swimwear/suggestive content
@@ -335,6 +338,8 @@ interface RegionEntry {
 	kind: MediaKind;
 	/** Padded, blur-capable normalized boxes (over image pixels). */
 	boxes: Detection["box"][];
+	/** Visual treatment for this entry's region children. */
+	style: Settings["censorStyle"];
 	/** Host div inside the shadow root, positioned at the clipped rect. */
 	host: HTMLElement;
 	/** Region children parallel to `boxes`. */
@@ -370,6 +375,25 @@ function ensurePortal(): ShadowRoot {
 	backdrop-filter: blur(var(--hb-blur, 20px)) grayscale(var(--hb-gray, 100%));
 	-webkit-backdrop-filter: blur(var(--hb-blur, 20px)) grayscale(var(--hb-gray, 100%));
 	border-radius: 12%;
+}
+.${REGION_CLASS}.hb-rr-solid {
+	backdrop-filter: none;
+	-webkit-backdrop-filter: none;
+	background: #0f172a;
+}
+.${REGION_CLASS}.hb-rr-static {
+	backdrop-filter: none;
+	-webkit-backdrop-filter: none;
+	background-color: #0f172a;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+	background-size: 140px 140px;
+}
+.${REGION_CLASS}.hb-rr-pattern {
+	backdrop-filter: none;
+	-webkit-backdrop-filter: none;
+	background-color: #1e293b;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M12 0L24 12L12 24L0 12Z' fill='none' stroke='%23334155' stroke-width='1.5'/%3E%3C/svg%3E");
+	background-size: 24px 24px;
 }`;
 	portalRoot.appendChild(style);
 	(document.documentElement ?? document.body).appendChild(portal);
@@ -657,9 +681,10 @@ export function applyRegionBlur(
 	const root = ensurePortal();
 	const host = document.createElement("div");
 	host.className = HOST_CLASS;
+	const styleClass = settings.censorStyle === "blur" ? "" : ` hb-rr-${settings.censorStyle}`;
 	const regions = boxes.slice(0, MAX_REGIONS).map(() => {
 		const r = document.createElement("div");
-		r.className = REGION_CLASS;
+		r.className = `${REGION_CLASS}${styleClass}`;
 		host.appendChild(r);
 		return r;
 	});
@@ -669,6 +694,7 @@ export function applyRegionBlur(
 		el,
 		kind,
 		boxes: boxes.slice(0, MAX_REGIONS),
+		style: settings.censorStyle,
 		host,
 		regions,
 		resizeObserver: null,
@@ -792,6 +818,14 @@ export function applyBlurMode(
 	delete el.dataset.hbRegion;
 	setBlurred(el, false);
 	const plan = planCensor(detections, kind, settings);
+	// Non-blur styles can't use the element's CSS filter (it only blurs) —
+	// a whole-element censor goes through the portal as one full-frame box.
+	if (plan.whole && settings.censorStyle !== "blur") {
+		if (applyRegionBlur(el, [FULL_FRAME_BOX], kind, settings)) return;
+		requestUpgrade({ el, kind, detections, settings });
+		setBlurred(el, true); // geometry never resolves → blur fallback
+		return;
+	}
 	if (!plan.whole && applyRegionBlur(el, plan.boxes, kind, settings)) {
 		return;
 	}

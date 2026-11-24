@@ -10,7 +10,10 @@
  * the v1 → v2 migration runs on the user's real stored object on update.
  */
 export const SETTINGS_KEY = "sync:hb-settings";
-export const SETTINGS_VERSION = 5;
+export const SETTINGS_VERSION = 6;
+
+/** How blurred media is censored visually. */
+export type CensorStyle = "blur" | "solid" | "static" | "pattern";
 
 /** How far a blurred face region expands to cover hair/neck/body. */
 export type CoverageMode = "face" | "head" | "body";
@@ -79,6 +82,12 @@ export interface Settings {
 	 * region coverage.
 	 */
 	wholeImages: boolean;
+	/**
+	 * Visual treatment of censored areas: `blur` (frosted), `solid`
+	 * (opaque matte — no silhouette leakage), `static` (noise fill),
+	 * `pattern` (calm geometric tile).
+	 */
+	censorStyle: CensorStyle;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -102,6 +111,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	smartCensor: true,
 	escalateAreaPct: 0.3,
 	wholeImages: false,
+	censorStyle: "blur",
 };
 
 /** Shape stored by HaramBlur 0.2.x under `chrome.storage.sync["hb-settings"]`. */
@@ -154,5 +164,6 @@ export function migrateLegacySettings(legacy: LegacySettings): Settings {
 		smartCensor: DEFAULT_SETTINGS.smartCensor,
 		escalateAreaPct: DEFAULT_SETTINGS.escalateAreaPct,
 		wholeImages: DEFAULT_SETTINGS.wholeImages,
+		censorStyle: DEFAULT_SETTINGS.censorStyle,
 	};
 }

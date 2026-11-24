@@ -4,7 +4,6 @@ import {
 	applyBlurMode,
 	backgroundFitFor,
 	blurRegionBoxes,
-	boxesCoveredArea,
 	coverageBoxFor,
 	disposeRegionPortal,
 	hasRegionBlur,
@@ -405,6 +404,55 @@ describe("portal lifecycle", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+});
+
+describe("censor styles", () => {
+	function makeImg(): HTMLImageElement {
+		const img = document.createElement("img");
+		img.src = "https://img.test/photo.jpg";
+		Object.defineProperty(img, "naturalWidth", { value: 400, configurable: true });
+		Object.defineProperty(img, "naturalHeight", { value: 200, configurable: true });
+		stubRect(img, { left: 100, top: 50, width: 200, height: 100 });
+		document.body.appendChild(img);
+		return img;
+	}
+
+	it("stamps the chosen style class on region children", () => {
+		const img = makeImg();
+		applyBlurMode(img, [det("FEMALE_BREAST_EXPOSED", 0.9, FACE_BOX)], "image", {
+			...SETTINGS,
+			censorStyle: "solid",
+		});
+		const regions = regionHosts()[0]?.querySelectorAll<HTMLElement>(".hb-rr");
+		expect(regions?.[0]?.className).toContain("hb-rr-solid");
+	});
+
+	it("whole-element non-blur style paints through the portal as one full-frame region", () => {
+		const img = makeImg();
+		applyBlurMode(img, [det("NSFW_EXPLICIT", 0.9, [0, 0, 1, 1])], "image", {
+			...SETTINGS,
+			censorStyle: "static",
+		});
+		// Element filter can't paint static — the portal must own it.
+		expect(img.dataset.hbBlur).toBeUndefined();
+		expect(hasRegionBlur(img)).toBe(true);
+		const regions = regionHosts()[0]?.querySelectorAll<HTMLElement>(".hb-rr");
+		expect(regions).toHaveLength(1);
+		expect(regions?.[0]?.className).toContain("hb-rr-static");
+		// Full-frame box over the element-sized content rect.
+		expect(regions?.[0]?.style.left).toBe("0px");
+		expect(regions?.[0]?.style.top).toBe("0px");
+		expect(regions?.[0]?.style.width).toBe("200px");
+		expect(regions?.[0]?.style.height).toBe("100px");
+	});
+
+	it("blur style keeps whole-element detections on the element filter", () => {
+		const img = makeImg();
+		applyBlurMode(img, [det("NSFW_EXPLICIT", 0.9, [0, 0, 1, 1])], "image", SETTINGS);
+		expect(img.dataset.hbBlur).toBe("1");
+		expect(hasRegionBlur(img)).toBe(false);
+		expect(document.getElementById("hb-region-portal")).toBeNull();
 	});
 });
 
