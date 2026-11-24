@@ -299,5 +299,50 @@
 	},
 	"censorStylePattern": {
 		"message": "ہندسی نقشہ"
+	},
+	"models": {
+		"message": "ماڈلز"
+	},
+	"modelsHint": {
+		"message": "بلٹ ان ماڈل کو تبدیل کرنے کے لیے اپنی ONNX ویٹس درآمد کریں۔ ویٹس اسی ڈیوائس پر رہتے ہیں۔"
+	},
+	"modelBundled": {
+		"message": "بلٹ ان"
+	},
+	"modelImport": {
+		"message": "درآمد"
+	},
+	"modelReplace": {
+		"message": "تبدیل کریں"
+	},
+	"modelRemove": {
+		"message": "ہٹائیں"
+	},
+	"modelsReloadNote": {
+		"message": "اووررائیڈز انجن کے اگلے آغاز پر لاگو ہوتے ہیں (عام طور پر براؤزر دوبارہ شروع کرنے پر)۔"
+	},
+	"modelNudenet": {
+		"message": "NudeNet ڈٹیکٹر"
+	},
+	"modelNudenetContract": {
+		"message": "NudeNet ڈٹیکٹر ایکسپورٹ — 320n جیسی لیبلز اور اینکر فارمیٹ۔"
+	},
+	"modelFastface": {
+		"message": "FastFace جنسیت"
+	},
+	"modelFastfaceContract": {
+		"message": "چہرہ جنسیت درجہ بند — سیدھے 112×112 چہرے کے کراپ۔"
+	},
+	"modelYunet": {
+		"message": "YuNet چہرہ ڈٹیکٹر"
+	},
+	"modelYunetContract": {
+		"message": "YuNet ڈٹیکٹر ایکسپورٹ — وہی 5 لینڈ مارک آؤٹ پٹ فارمیٹ۔"
+	},
+	"modelNsfw": {
+		"message": "NSFW درجہ بند"
+	},
+	"modelNsfwContract": {
+		"message": "nsfwjs MobileNetV2 پوری تصویر درجہ بند — 224×224 ان پٹ۔"
 	}
 }

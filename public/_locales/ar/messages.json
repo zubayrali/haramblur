@@ -299,5 +299,50 @@
 	},
 	"censorStylePattern": {
 		"message": "نقش هندسي"
+	},
+	"models": {
+		"message": "النماذج"
+	},
+	"modelsHint": {
+		"message": "استورد أوزان ONNX خاصة بك لتجاوز النموذج المضمّن. تبقى الأوزان على هذا الجهاز."
+	},
+	"modelBundled": {
+		"message": "مضمّن"
+	},
+	"modelImport": {
+		"message": "استيراد"
+	},
+	"modelReplace": {
+		"message": "استبدال"
+	},
+	"modelRemove": {
+		"message": "إزالة"
+	},
+	"modelsReloadNote": {
+		"message": "تُطبَّق التعديلات في المرة التالية التي يبدأ فيها المحرك (عادةً عند إعادة تشغيل المتصفح)."
+	},
+	"modelNudenet": {
+		"message": "كاشف NudeNet"
+	},
+	"modelNudenetContract": {
+		"message": "تصدير كاشف NudeNet — نفس التسميات وصيغة المراسي مثل 320n."
+	},
+	"modelFastface": {
+		"message": "تصنيف الجنس FastFace"
+	},
+	"modelFastfaceContract": {
+		"message": "مصنّف جنس الوجه — قصاصات وجوه محاذية 112×112."
+	},
+	"modelYunet": {
+		"message": "كاشف الوجوه YuNet"
+	},
+	"modelYunetContract": {
+		"message": "تصدير كاشف YuNet — نفس صيغة الإخراج ذات 5 معالم."
+	},
+	"modelNsfw": {
+		"message": "مصنّف NSFW"
+	},
+	"modelNsfwContract": {
+		"message": "مصنّف nsfwjs MobileNetV2 للصورة كاملة — إدخال 224×224."
 	}
 }

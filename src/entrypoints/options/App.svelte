@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { browser } from "wxt/browser";
+	import { getModelStore, type InstalledModel } from "../../engine/model-store";
 	import { t } from "../../shared/i18n";
+	import { MODEL_SLOTS, type ModelSlot } from "../../shared/model-slots";
 	import { PROFILES, profileSettings } from "../../shared/profiles";
 	import { getSettings, settings, watchSettings } from "../../shared/settings-store";
 	import type { Settings } from "../../shared/settings";
@@ -62,6 +64,40 @@
 	];
 
 	let s = $state<Settings | null>(null);
+	let installedModels = $state<InstalledModel[]>([]);
+	let importSlot = $state<ModelSlot | null>(null);
+	let fileInput = $state<HTMLInputElement | null>(null);
+
+	const installedFor = (slot: ModelSlot) => installedModels.find((m) => m.slot === slot);
+
+	async function refreshModels() {
+		try {
+			installedModels = await getModelStore().list();
+		} catch {
+			installedModels = [];
+		}
+	}
+
+	function pickImport(slot: ModelSlot) {
+		importSlot = slot;
+		fileInput?.click();
+	}
+
+	async function onModelFile(e: Event) {
+		const input = e.target as HTMLInputElement;
+		const file = input.files?.[0];
+		const slot = importSlot;
+		input.value = "";
+		if (file == null || slot == null) return;
+		const bytes = new Uint8Array(await file.arrayBuffer());
+		await getModelStore().put(slot, bytes, file.name);
+		await refreshModels();
+	}
+
+	async function removeModel(slot: ModelSlot) {
+		await getModelStore().remove(slot);
+		await refreshModels();
+	}
 
 	const previewFilter = $derived(
 		s == null
@@ -79,6 +115,7 @@
 	onMount(() => {
 		const unwatch = watchSettings((next) => (s = next));
 		void getSettings().then((v) => (s = v));
+		void refreshModels();
 		return unwatch;
 	});
 </script>
@@ -110,6 +147,59 @@
 				{/each}
 			</div>
 			<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{t("profilesHint")}</p>
+		</Section>
+
+		<Section title={t("models")} testid="section-models">
+			<p class="mb-2 text-xs text-gray-500 dark:text-gray-400">{t("modelsHint")}</p>
+			<input
+				bind:this={fileInput}
+				type="file"
+				accept=".onnx"
+				class="hidden"
+				data-testid="model-file-input"
+				onchange={onModelFile}
+			/>
+			<ul class="space-y-2">
+				{#each MODEL_SLOTS as slot (slot.id)}
+					{@const inst = installedFor(slot.id)}
+					<li class="rounded-md border border-gray-200 p-2 dark:border-gray-700" data-testid={`model-row-${slot.id}`}>
+						<div class="flex items-center justify-between gap-2">
+							<div class="min-w-0">
+								<div class="truncate text-sm font-medium text-gray-800 dark:text-gray-100">
+									{t(slot.labelKey)}
+								</div>
+								<div class="truncate text-xs text-gray-500 dark:text-gray-400">
+									{inst != null
+										? `${inst.meta.fileName} · ${(inst.meta.size / 1048576).toFixed(1)} MB`
+										: `${t("modelBundled")} · ${slot.bundledFile}`}
+								</div>
+							</div>
+							<div class="flex shrink-0 gap-1">
+								<button
+									type="button"
+									class="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-800"
+									data-testid={`model-import-${slot.id}`}
+									onclick={() => pickImport(slot.id)}
+								>
+									{inst != null ? t("modelReplace") : t("modelImport")}
+								</button>
+								{#if inst != null}
+									<button
+										type="button"
+										class="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-800"
+										data-testid={`model-remove-${slot.id}`}
+										onclick={() => removeModel(slot.id)}
+									>
+										{t("modelRemove")}
+									</button>
+								{/if}
+							</div>
+						</div>
+						<p class="mt-1 text-[11px] text-gray-400 dark:text-gray-500">{t(slot.contractKey)}</p>
+					</li>
+				{/each}
+			</ul>
+			<p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{t("modelsReloadNote")}</p>
 		</Section>
 
 		<Section title={t("settings")} testid="section-general">

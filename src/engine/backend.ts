@@ -4,6 +4,7 @@
  * (SIMD; threads only when cross-origin isolated).
  */
 import * as ort from "onnxruntime-web";
+import type { ModelSlot } from "../shared/model-slots";
 import type { EngineBackend } from "../shared/protocol";
 import { INPUT_SIZE } from "./nudenet";
 
@@ -18,6 +19,11 @@ export interface SessionOptions {
 	yunetModelUrl?: string;
 	/** Absolute extension URL of `models/nsfwjs-u8.onnx` (optional). */
 	nsfwModelUrl?: string;
+	/**
+	 * OPFS-stored override weights per slot — win over the bundled URLs.
+	 * Same tensor contract required (docs/PLAN.md Phase 4).
+	 */
+	modelOverrides?: Partial<Record<ModelSlot, Uint8Array>>;
 }
 
 export interface EngineSession {
@@ -112,6 +118,7 @@ export async function createSession({
 	faceModelUrl,
 	yunetModelUrl,
 	nsfwModelUrl,
+	modelOverrides,
 }: SessionOptions): Promise<EngineSession> {
 	// Absolute extension URL — a relative path would resolve against the ort
 	// module's own directory and 404 (docs/ENGINE_NOTES.md).
@@ -119,62 +126,60 @@ export async function createSession({
 	ort.env.wasm.numThreads = WASM_THREADS;
 	ort.env.logLevel = "warning";
 
+	const ov = modelOverrides ?? {};
+	// ORT's create() overloads split on string vs bytes — a union arg
+	// matches neither, so route through this narrowing helper.
+	const createModel = (src: string | Uint8Array, executionProviders: ("webgpu" | "wasm")[]) =>
+		typeof src === "string"
+			? ort.InferenceSession.create(src, { executionProviders })
+			: ort.InferenceSession.create(new Uint8Array(src), { executionProviders });
+	const nudenetSrc = ov.nudenet ?? modelUrl;
+	const faceSrc = ov.fastface ?? faceModelUrl;
+	const yunetSrc = ov.yunet ?? yunetModelUrl;
+	const nsfwSrc = ov.nsfw ?? nsfwModelUrl;
+
 	let backend: EngineBackend = "wasm";
 	let session: ort.InferenceSession;
 	if ((await requestGpuAdapter()) != null) {
 		try {
-			const candidate = await ort.InferenceSession.create(modelUrl, {
-				executionProviders: ["webgpu"],
-			});
+			const candidate = await createModel(nudenetSrc, ["webgpu"]);
 			if (await probeSession(candidate)) {
 				backend = "webgpu";
 				session = candidate;
 			} else {
 				console.warn("[haramblur] WebGPU probe failed, falling back to WASM");
 				await candidate.release();
-				session = await ort.InferenceSession.create(modelUrl, {
-					executionProviders: ["wasm"],
-				});
+				session = await createModel(nudenetSrc, ["wasm"]);
 			}
 		} catch (err) {
 			console.warn("[haramblur] WebGPU session failed, falling back to WASM:", err);
-			session = await ort.InferenceSession.create(modelUrl, {
-				executionProviders: ["wasm"],
-			});
+			session = await createModel(nudenetSrc, ["wasm"]);
 		}
 	} else {
-		session = await ort.InferenceSession.create(modelUrl, {
-			executionProviders: ["wasm"],
-		});
+		session = await createModel(nudenetSrc, ["wasm"]);
 	}
 
 	let faceSession: ort.InferenceSession | null = null;
-	if (faceModelUrl != null) {
+	if (faceSrc != null) {
 		try {
-			faceSession = await ort.InferenceSession.create(faceModelUrl, {
-				executionProviders: ["wasm"],
-			});
+			faceSession = await createModel(faceSrc, ["wasm"]);
 		} catch (err) {
 			// Missing/corrupt model must not take the detector down with it.
 			console.warn("[haramblur] face gender model unavailable:", err);
 		}
 	}
 	let yunetSession: ort.InferenceSession | null = null;
-	if (yunetModelUrl != null) {
+	if (yunetSrc != null) {
 		try {
-			yunetSession = await ort.InferenceSession.create(yunetModelUrl, {
-				executionProviders: ["wasm"],
-			});
+			yunetSession = await createModel(yunetSrc, ["wasm"]);
 		} catch (err) {
 			console.warn("[haramblur] face detector model unavailable:", err);
 		}
 	}
 	let nsfwSession: ort.InferenceSession | null = null;
-	if (nsfwModelUrl != null) {
+	if (nsfwSrc != null) {
 		try {
-			nsfwSession = await ort.InferenceSession.create(nsfwModelUrl, {
-				executionProviders: ["wasm"],
-			});
+			nsfwSession = await createModel(nsfwSrc, ["wasm"]);
 		} catch (err) {
 			console.warn("[haramblur] nsfw classifier model unavailable:", err);
 		}
