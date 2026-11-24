@@ -5,6 +5,12 @@
 	"extDescription": {
 		"message": "Protect your privacy and uphold Islamic values by auto detecting & blurring images and videos of unwanted or impermissible content."
 	},
+	"appLocale": {
+		"message": "ur"
+	},
+	"textDirection": {
+		"message": "rtl"
+	},
 	"settings": {
 		"message": "ترتیبات"
 	},
@@ -17,7 +23,10 @@
 	"blurAmount": {
 		"message": "بلر کی مقدار: $amount$%",
 		"placeholders": {
-			"amount": { "content": "$1", "example": "20" }
+			"amount": {
+				"content": "$1",
+				"example": "20"
+			}
 		}
 	},
 	"grayscale": {
@@ -26,7 +35,10 @@
 	"strictness": {
 		"message": "سختی: $percent$%",
 		"placeholders": {
-			"percent": { "content": "$1", "example": "50" }
+			"percent": {
+				"content": "$1",
+				"example": "50"
+			}
 		}
 	},
 	"mediaToBlur": {
@@ -68,14 +80,23 @@
 	"feedbackPrompt": {
 		"message": "ہمیں $form$ یا $email$ کے ذریعے آپ کی رائے سننا پسند ہے ❤️",
 		"placeholders": {
-			"form": { "content": "$1", "example": "فارم" },
-			"email": { "content": "$2", "example": "ای میل" }
+			"form": {
+				"content": "$1",
+				"example": "فارم"
+			},
+			"email": {
+				"content": "$2",
+				"example": "ای میل"
+			}
 		}
 	},
 	"detectionForSite": {
 		"message": "اس ویب سائٹ کے لیے کھوج $status$ ہے",
 		"placeholders": {
-			"status": { "content": "$1", "example": "جلنا" }
+			"status": {
+				"content": "$1",
+				"example": "جلنا"
+			}
 		}
 	},
 	"detectionOn": {
@@ -83,5 +104,113 @@
 	},
 	"detectionOff": {
 		"message": "بند"
+	},
+	"masterToggle": {
+		"message": "تحفظ فعال کریں"
+	},
+	"siteDetection": {
+		"message": "$host$ پر کھوج",
+		"placeholders": {
+			"host": {
+				"content": "$1",
+				"example": "example.com"
+			}
+		}
+	},
+	"engineStatus": {
+		"message": "انجن"
+	},
+	"engineBooting": {
+		"message": "شروع ہو رہا ہے"
+	},
+	"engineReady": {
+		"message": "تیار"
+	},
+	"engineDegraded": {
+		"message": "کم کارکردگی"
+	},
+	"engineFailed": {
+		"message": "ناکام"
+	},
+	"engineUnavailable": {
+		"message": "دستیاب نہیں"
+	},
+	"mediaOnThisPage": {
+		"message": "اس صفحے پر میڈیا"
+	},
+	"noMedia": {
+		"message": "اس ٹیب میں کوئی میڈیا نہیں"
+	},
+	"openSettings": {
+		"message": "ترتیبات کھولیں"
+	},
+	"revealThisMedia": {
+		"message": "یہ میڈیا دکھائیں"
+	},
+	"recheckThisMedia": {
+		"message": "یہ میڈیا دوبارہ جانچیں"
+	},
+	"allowlistTitle": {
+		"message": "اجازت یافتہ سائٹس"
+	},
+	"allowlistDescription": {
+		"message": "ان ویب سائٹس پر کھوج غیر فعال ہے."
+	},
+	"allowlistPlaceholder": {
+		"message": "example.com"
+	},
+	"addSite": {
+		"message": "شامل کریں"
+	},
+	"removeSite": {
+		"message": "ہٹائیں"
+	},
+	"invalidHostname": {
+		"message": "درست ہوسٹ نام درج کریں، مثلاً example.com."
+	},
+	"blurSection": {
+		"message": "دھندلا پن"
+	},
+	"blurAmountLabel": {
+		"message": "دھندلا پن کی مقدار"
+	},
+	"strictnessLabel": {
+		"message": "سختی"
+	},
+	"blurPreviewCaption": {
+		"message": "دھندلا اثر کا لائیو پری ویو"
+	},
+	"revealSection": {
+		"message": "ظہور"
+	},
+	"advancedSection": {
+		"message": "ایڈوانسڈ"
+	},
+	"failClosed": {
+		"message": "خرابی پر میڈیا دھندلا رکھیں"
+	},
+	"failClosedHint": {
+		"message": "اگر جانچ ناکام ہو یا وقت ختم ہو تو میڈیا دھندلا رہتا ہے."
+	},
+	"aboutSection": {
+		"message": "متعلق"
+	},
+	"licensesHeading": {
+		"message": "لائسنسز"
+	},
+	"versionLabel": {
+		"message": "ورژن"
+	},
+	"feedbackLead": {
+		"message": "ہمیں آپ کی رائے سننا پسند ہے"
+	},
+	"feedbackForm": {
+		"message": "فارم"
+	},
+	"feedbackOr": {
+		"message": "یا"
+	},
+	"feedbackEmail": {
+		"message": "ای میل"
 	}
 }

@@ -5,6 +5,12 @@
 	"extDescription": {
 		"message": "Protect your privacy and uphold Islamic values by auto detecting & blurring images and videos of unwanted or impermissible content."
 	},
+	"appLocale": {
+		"message": "en"
+	},
+	"textDirection": {
+		"message": "ltr"
+	},
 	"settings": {
 		"message": "Settings"
 	},
@@ -17,7 +23,10 @@
 	"blurAmount": {
 		"message": "Blur Amount: $amount$%",
 		"placeholders": {
-			"amount": { "content": "$1", "example": "20" }
+			"amount": {
+				"content": "$1",
+				"example": "20"
+			}
 		}
 	},
 	"grayscale": {
@@ -26,7 +35,10 @@
 	"strictness": {
 		"message": "Strictness: $percent$%",
 		"placeholders": {
-			"percent": { "content": "$1", "example": "50" }
+			"percent": {
+				"content": "$1",
+				"example": "50"
+			}
 		}
 	},
 	"mediaToBlur": {
@@ -68,14 +80,23 @@
 	"feedbackPrompt": {
 		"message": "We love to hear your feedback through our $form$ or $email$ ❤️",
 		"placeholders": {
-			"form": { "content": "$1", "example": "Form" },
-			"email": { "content": "$2", "example": "Email" }
+			"form": {
+				"content": "$1",
+				"example": "Form"
+			},
+			"email": {
+				"content": "$2",
+				"example": "Email"
+			}
 		}
 	},
 	"detectionForSite": {
 		"message": "Detection is $status$ for this website",
 		"placeholders": {
-			"status": { "content": "$1", "example": "On" }
+			"status": {
+				"content": "$1",
+				"example": "On"
+			}
 		}
 	},
 	"detectionOn": {
@@ -83,5 +104,113 @@
 	},
 	"detectionOff": {
 		"message": "Off"
+	},
+	"masterToggle": {
+		"message": "Enable protection"
+	},
+	"siteDetection": {
+		"message": "Detection on $host$",
+		"placeholders": {
+			"host": {
+				"content": "$1",
+				"example": "example.com"
+			}
+		}
+	},
+	"engineStatus": {
+		"message": "Engine"
+	},
+	"engineBooting": {
+		"message": "Starting up"
+	},
+	"engineReady": {
+		"message": "Ready"
+	},
+	"engineDegraded": {
+		"message": "Degraded"
+	},
+	"engineFailed": {
+		"message": "Failed"
+	},
+	"engineUnavailable": {
+		"message": "Unavailable"
+	},
+	"mediaOnThisPage": {
+		"message": "Media on this page"
+	},
+	"noMedia": {
+		"message": "No media on this tab"
+	},
+	"openSettings": {
+		"message": "Open settings"
+	},
+	"revealThisMedia": {
+		"message": "Reveal this media"
+	},
+	"recheckThisMedia": {
+		"message": "Re-check this media"
+	},
+	"allowlistTitle": {
+		"message": "Allowlist"
+	},
+	"allowlistDescription": {
+		"message": "Detection is disabled on these sites."
+	},
+	"allowlistPlaceholder": {
+		"message": "example.com"
+	},
+	"addSite": {
+		"message": "Add"
+	},
+	"removeSite": {
+		"message": "Remove"
+	},
+	"invalidHostname": {
+		"message": "Enter a valid hostname, e.g. example.com."
+	},
+	"blurSection": {
+		"message": "Blur"
+	},
+	"blurAmountLabel": {
+		"message": "Blur amount"
+	},
+	"strictnessLabel": {
+		"message": "Strictness"
+	},
+	"blurPreviewCaption": {
+		"message": "Live preview of the blur effect"
+	},
+	"revealSection": {
+		"message": "Reveal"
+	},
+	"advancedSection": {
+		"message": "Advanced"
+	},
+	"failClosed": {
+		"message": "Keep media blurred on errors"
+	},
+	"failClosedHint": {
+		"message": "Fail closed: if detection times out or fails, media stays blurred."
+	},
+	"aboutSection": {
+		"message": "About"
+	},
+	"licensesHeading": {
+		"message": "Licenses"
+	},
+	"versionLabel": {
+		"message": "Version"
+	},
+	"feedbackLead": {
+		"message": "We love to hear your feedback through our"
+	},
+	"feedbackForm": {
+		"message": "Form"
+	},
+	"feedbackOr": {
+		"message": "or"
+	},
+	"feedbackEmail": {
+		"message": "Email"
 	}
 }
