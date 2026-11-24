@@ -175,6 +175,47 @@ describe("engine host", () => {
 		host.dispose();
 	});
 
+	it("re-decides cached detections when settings change", async () => {
+		const { host, workers } = makeHost({ detections: [det("FACE_FEMALE", 0.9)] });
+		const first = await host.run(imageReq);
+		expect(first).toMatchObject({ decision: "blur", cached: false });
+		// Same URL with blurFemale off → cached detections re-decide to clear
+		// without re-running inference (8x8 bitmap has no detail tiles).
+		const second = await host.run({
+			...imageReq,
+			settings: { ...DEFAULT_SETTINGS, blurFemale: false },
+		});
+		expect(second).toMatchObject({ decision: "clear", cached: false });
+		expect(workers[0]!.posted.filter((m) => m.type === "infer")).toHaveLength(1);
+		host.dispose();
+	});
+
+	it("runs only the detail pass when a cached verdict turns clear", async () => {
+		// strictness 1 blurs FACE_FEMALE@0.3 and caches {detailed:false}.
+		const strictReq: EngineRequest = {
+			...imageReq,
+			width: 960,
+			height: 640,
+			settings: { ...DEFAULT_SETTINGS, strictness: 1 },
+		};
+		const { host, workers } = makeHost(
+			{ detections: [det("FACE_FEMALE", 0.3)], detailDetections: [] },
+			BIG_BITMAP,
+		);
+		const first = await host.run(strictReq);
+		expect(first).toMatchObject({ decision: "blur", cached: false });
+		// strictness 0 → cached detections now decide clear → detail pass runs,
+		// whole pass is skipped.
+		const second = await host.run({
+			...strictReq,
+			settings: { ...DEFAULT_SETTINGS, strictness: 0 },
+		});
+		expect(second).toMatchObject({ decision: "clear", cached: false });
+		const infers = workers[0]!.posted.filter((m) => m.type === "infer");
+		expect(infers.map((m) => m.detail === true)).toEqual([false, true]);
+		host.dispose();
+	});
+
 	it("propagates inference errors as {error}", async () => {
 		const { host } = makeHost({ inferError: "oom" });
 		const res = await host.run({ kind: "frame", dataUrl: "data:,", videoId: "v", ts: 0 });

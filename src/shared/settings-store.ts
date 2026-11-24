@@ -26,6 +26,8 @@ export const settings = storage.defineItem<Settings>(SETTINGS_KEY, {
 	migrations: {
 		// The stored value is a raw 0.2.x hb-settings object.
 		2: (oldValue: LegacySettings) => migrateLegacySettings(oldValue),
+		// v2 → v3: fill in settings added after the rewrite shipped.
+		3: (oldValue: Settings) => ({ ...DEFAULT_SETTINGS, ...oldValue }),
 	},
 });
 
