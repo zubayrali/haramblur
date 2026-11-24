@@ -1,0 +1,87 @@
+{
+	"extName": {
+		"message": "HaramBlur"
+	},
+	"extDescription": {
+		"message": "Protect your privacy and uphold Islamic values by auto detecting & blurring images and videos of unwanted or impermissible content."
+	},
+	"settings": {
+		"message": "ترتیبات"
+	},
+	"blurryStart": {
+		"message": "لوڈ پر میڈیا کو دھندلا کرنا:"
+	},
+	"blurryStartTooltip": {
+		"message": "فعال ہونے پر، شناخت شروع ہونے تک تمام تصاویر اور ویڈیوز بطور ڈیفالٹ دھندلی ہو جائیں گی۔"
+	},
+	"blurAmount": {
+		"message": "بلر کی مقدار: $amount$%",
+		"placeholders": {
+			"amount": { "content": "$1", "example": "20" }
+		}
+	},
+	"grayscale": {
+		"message": "مٹیالا پیمانہ:"
+	},
+	"strictness": {
+		"message": "سختی: $percent$%",
+		"placeholders": {
+			"percent": { "content": "$1", "example": "50" }
+		}
+	},
+	"mediaToBlur": {
+		"message": "میڈیا کو دھندلا کرنا"
+	},
+	"blurImages": {
+		"message": "تصاویر"
+	},
+	"blurVideos": {
+		"message": "ویڈیوز"
+	},
+	"facesToBlur": {
+		"message": "چہرے کو دھندلا کرنا"
+	},
+	"blurMale": {
+		"message": "مرد"
+	},
+	"blurFemale": {
+		"message": "عورت"
+	},
+	"unblurOnHover": {
+		"message": "ہوور پر دھندلا پن ختم کریں"
+	},
+	"unblurImages": {
+		"message": "تصاویر"
+	},
+	"unblurVideos": {
+		"message": "ویڈیوز"
+	},
+	"requiresRefresh": {
+		"message": " (صفحہ ریفریش کی ضرورت ہے):"
+	},
+	"refreshMessage": {
+		"message": "تبدیلیاں دیکھنے کے لیے صفحہ کو ریفریش کریں۔"
+	},
+	"supportProject": {
+		"message": "منصوبے کی حمایت کریں"
+	},
+	"feedbackPrompt": {
+		"message": "ہمیں $form$ یا $email$ کے ذریعے آپ کی رائے سننا پسند ہے ❤️",
+		"placeholders": {
+			"form": { "content": "$1", "example": "فارم" },
+			"email": { "content": "$2", "example": "ای میل" }
+		}
+	},
+	"detectionForSite": {
+		"message": "اس ویب سائٹ کے لیے کھوج $status$ ہے",
+		"placeholders": {
+			"status": { "content": "$1", "example": "جلنا" }
+		}
+	},
+	"detectionOn": {
+		"message": "جلنا"
+	},
+	"detectionOff": {
+		"message": "بند"
+	}
+}

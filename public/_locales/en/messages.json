@@ -1,0 +1,87 @@
+{
+	"extName": {
+		"message": "HaramBlur"
+	},
+	"extDescription": {
+		"message": "Protect your privacy and uphold Islamic values by auto detecting & blurring images and videos of unwanted or impermissible content."
+	},
+	"settings": {
+		"message": "Settings"
+	},
+	"blurryStart": {
+		"message": "Blur media on load:"
+	},
+	"blurryStartTooltip": {
+		"message": "When enabled, all images and videos will be blurred by default until detection starts."
+	},
+	"blurAmount": {
+		"message": "Blur Amount: $amount$%",
+		"placeholders": {
+			"amount": { "content": "$1", "example": "20" }
+		}
+	},
+	"grayscale": {
+		"message": "Grayscale:"
+	},
+	"strictness": {
+		"message": "Strictness: $percent$%",
+		"placeholders": {
+			"percent": { "content": "$1", "example": "50" }
+		}
+	},
+	"mediaToBlur": {
+		"message": "Media to Blur"
+	},
+	"blurImages": {
+		"message": "Images"
+	},
+	"blurVideos": {
+		"message": "Videos"
+	},
+	"facesToBlur": {
+		"message": "Faces to Blur"
+	},
+	"blurMale": {
+		"message": "Male"
+	},
+	"blurFemale": {
+		"message": "Female"
+	},
+	"unblurOnHover": {
+		"message": "Unblur on hover"
+	},
+	"unblurImages": {
+		"message": "Images"
+	},
+	"unblurVideos": {
+		"message": "Videos"
+	},
+	"requiresRefresh": {
+		"message": " (requires page refresh):"
+	},
+	"refreshMessage": {
+		"message": "Refresh the page to see the changes."
+	},
+	"supportProject": {
+		"message": "Support the project"
+	},
+	"feedbackPrompt": {
+		"message": "We love to hear your feedback through our $form$ or $email$ ❤️",
+		"placeholders": {
+			"form": { "content": "$1", "example": "Form" },
+			"email": { "content": "$2", "example": "Email" }
+		}
+	},
+	"detectionForSite": {
+		"message": "Detection is $status$ for this website",
+		"placeholders": {
+			"status": { "content": "$1", "example": "On" }
+		}
+	},
+	"detectionOn": {
+		"message": "On"
+	},
+	"detectionOff": {
+		"message": "Off"
+	}
+}
