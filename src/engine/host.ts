@@ -38,6 +38,8 @@ export interface EngineHostOptions {
 	modelUrl: string;
 	/** Absolute extension URL of `models/fastface-small-112.onnx` (optional). */
 	faceModelUrl?: string;
+	/** Absolute extension URL of `models/blaze-face.onnx` (optional). */
+	faceDetModelUrl?: string;
 	/** Absolute extension URL of the shipped ORT WASM assets (`/ort/`). */
 	wasmBase: string;
 	spawnWorker?: () => WorkerHandle;
@@ -123,6 +125,7 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 			wasmBase: opts.wasmBase,
 			modelUrl: opts.modelUrl,
 			faceModelUrl: opts.faceModelUrl,
+			faceDetModelUrl: opts.faceDetModelUrl,
 		});
 	}
 

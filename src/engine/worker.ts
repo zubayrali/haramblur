@@ -8,7 +8,20 @@ import * as ort from "onnxruntime-web";
 import type { Detection, EngineBackend } from "../shared/protocol";
 import { createSession } from "./backend";
 import {
+	blazeRgbaToTensor,
+	corroboratedFaces,
+	FACE_DET_IOU,
+	FACE_DET_MAX,
+	FACE_DET_PASSES,
+	FACE_DET_SIZE,
+	mergeDetectionPasses,
+	type NormBox,
+	parseFaceBoxes,
+	suppressCoveredFaceLabels,
+} from "./facedet";
+import {
 	FACE_INPUT_SIZE,
+	FACE_MAX_PER_PASS,
 	FACE_MIN_PX,
 	type FaceClassifier,
 	type FaceGender,
@@ -32,6 +45,8 @@ export interface WorkerInitMessage {
 	modelUrl: string;
 	/** Optional FastFace gender model; absent → FACE_* labels stay NudeNet's. */
 	faceModelUrl?: string;
+	/** Optional BlazeFace detector; absent → NudeNet FACE_* labels untouched. */
+	faceDetModelUrl?: string;
 }
 
 export interface WorkerInferMessage {
@@ -61,10 +76,13 @@ const scope = self as unknown as {
 
 let session: ort.InferenceSession | null = null;
 let faceSession: ort.InferenceSession | null = null;
+let faceDetSession: ort.InferenceSession | null = null;
 const canvas = new OffscreenCanvas(INPUT_SIZE, INPUT_SIZE);
 const ctx = canvas.getContext("2d");
 const faceCanvas = new OffscreenCanvas(FACE_INPUT_SIZE, FACE_INPUT_SIZE);
 const faceCtx = faceCanvas.getContext("2d", { willReadFrequently: true });
+const faceDetCanvas = new OffscreenCanvas(FACE_DET_SIZE, FACE_DET_SIZE);
+const faceDetCtx = faceDetCanvas.getContext("2d", { willReadFrequently: true });
 
 /**
  * Inference runs are serialized: onnxruntime-web does not guarantee
@@ -170,6 +188,71 @@ function makeFaceClassifier(bitmap: ImageBitmap): FaceClassifier {
 	};
 }
 
+/**
+ * Run the fused BlazeFace export at each confidence pass and merge the
+ * results into scored boxes. The graph has no score output, so a box's
+ * score is the tier of the highest `conf_threshold` it survives.
+ */
+async function detectFaceBoxes(bitmap: ImageBitmap): Promise<{ box: NormBox; score: number }[]> {
+	if (faceDetSession == null || faceDetCtx == null) return [];
+	faceDetCtx.clearRect(0, 0, FACE_DET_SIZE, FACE_DET_SIZE);
+	faceDetCtx.drawImage(bitmap, 0, 0, FACE_DET_SIZE, FACE_DET_SIZE);
+	const { data } = faceDetCtx.getImageData(0, 0, FACE_DET_SIZE, FACE_DET_SIZE);
+	const tensor = new ort.Tensor("float32", blazeRgbaToTensor(data), [
+		1,
+		3,
+		FACE_DET_SIZE,
+		FACE_DET_SIZE,
+	]);
+	const inputName = faceDetSession.inputNames[0];
+	if (inputName == null) {
+		tensor.dispose();
+		return [];
+	}
+	const passes: NormBox[][] = [];
+	try {
+		for (const pass of FACE_DET_PASSES) {
+			const outputs = await faceDetSession.run({
+				[inputName]: tensor,
+				conf_threshold: new ort.Tensor("float32", new Float32Array([pass.conf]), [1]),
+				iou_threshold: new ort.Tensor("float32", new Float32Array([FACE_DET_IOU]), [1]),
+				max_detections: new ort.Tensor("int64", new BigInt64Array([BigInt(FACE_DET_MAX)]), [1]),
+			});
+			const t = outputs["selectedBoxes"] ?? outputs[faceDetSession.outputNames[0]!];
+			passes.push(t == null ? [] : parseFaceBoxes(t.data as ArrayLike<number>, t.dims as number[]));
+			for (const o of Object.values(outputs)) o.dispose();
+		}
+	} finally {
+		tensor.dispose();
+	}
+	return mergeDetectionPasses(passes);
+}
+
+/** FastFace gender for each detected face box → synthetic FACE_* detections. */
+async function genderizeFaceBoxes(
+	scored: readonly { box: NormBox; score: number }[],
+	bitmap: ImageBitmap,
+): Promise<Detection[]> {
+	const classify = makeFaceClassifier(bitmap);
+	const out: Detection[] = [];
+	for (const { box, score } of scored.slice(0, FACE_MAX_PER_PASS)) {
+		const [bw, bh] = [box[2] * bitmap.width, box[3] * bitmap.height];
+		if (bw < FACE_MIN_PX || bh < FACE_MIN_PX) continue;
+		const gender = await classify(box).catch(() => null);
+		if (gender == null) continue;
+		const conf = Math.max(gender.femaleProb, gender.maleProb);
+		// Unlike refineFaceDetections there is no NudeNet label to fall back
+		// on — an ambiguous crop is dropped rather than guessed.
+		if (conf < 0.6) continue;
+		out.push({
+			label: gender.femaleProb >= gender.maleProb ? "FACE_FEMALE" : "FACE_MALE",
+			score,
+			box,
+		});
+	}
+	return out;
+}
+
 async function infer(id: number, bitmap: ImageBitmap, detail: boolean): Promise<void> {
 	if (session == null) {
 		scope.postMessage({ type: "inferError", id, error: "engine not initialized" });
@@ -178,6 +261,7 @@ async function infer(id: number, bitmap: ImageBitmap, detail: boolean): Promise<
 	const t0 = performance.now();
 	try {
 		let detections: Detection[] = [];
+		let faceDets: Detection[] = [];
 		if (detail) {
 			// Detail pass: only tiles, remapped back to source-normalized boxes.
 			for (const rect of tileRects(bitmap.width, bitmap.height)) {
@@ -201,6 +285,21 @@ async function infer(id: number, bitmap: ImageBitmap, detail: boolean): Promise<
 			const { rgba, k } = letterboxDraw(bitmap);
 			const { data, rows, cols } = await runTensor(rgba);
 			detections.push(...parseDetections(data, rows, cols, k, bitmap.width, bitmap.height));
+			if (faceDetSession != null && faceSession != null) {
+				// Dedicated face pipeline: BlazeFace boxes → FastFace gender.
+				// Synthetics are gated on NudeNet face corroboration — the
+				// detector alone false-positives on animal faces. NudeNet
+				// FACE_* labels overlapping an emitted face are suppressed:
+				// the specialist verdict replaces the guess.
+				const scored = await detectFaceBoxes(bitmap);
+				faceDets = await genderizeFaceBoxes(corroboratedFaces(scored, detections), bitmap);
+				if (faceDets.length > 0) {
+					detections = suppressCoveredFaceLabels(
+						detections,
+						faceDets.map((d) => d.box),
+					);
+				}
+			}
 		}
 		if (faceSession != null) {
 			detections = await refineFaceDetections(
@@ -210,6 +309,9 @@ async function infer(id: number, bitmap: ImageBitmap, detail: boolean): Promise<
 				bitmap.height,
 			);
 		}
+		// Synthetic detections are final — appended after refinement so
+		// FastFace doesn't re-classify its own output.
+		detections.push(...faceDets);
 		detections.sort((a, b) => b.score - a.score);
 		scope.postMessage({ type: "result", id, detections, ms: performance.now() - t0 });
 	} catch (err) {
@@ -226,10 +328,12 @@ scope.onmessage = (event) => {
 			wasmBase: msg.wasmBase,
 			modelUrl: msg.modelUrl,
 			faceModelUrl: msg.faceModelUrl,
+			faceDetModelUrl: msg.faceDetModelUrl,
 		})
-			.then(({ backend, session: s, faceSession: fs }) => {
+			.then(({ backend, session: s, faceSession: fs, faceDetSession: fds }) => {
 				session = s;
 				faceSession = fs;
+				faceDetSession = fds;
 				scope.postMessage({ type: "ready", backend });
 			})
 			.catch((err) => scope.postMessage({ type: "initError", error: errMsg(err) }));

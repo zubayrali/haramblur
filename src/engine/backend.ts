@@ -14,6 +14,8 @@ export interface SessionOptions {
 	modelUrl: string;
 	/** Absolute extension URL of `models/fastface-small-112.onnx` (optional). */
 	faceModelUrl?: string;
+	/** Absolute extension URL of `models/blaze-face.onnx` (optional). */
+	faceDetModelUrl?: string;
 }
 
 export interface EngineSession {
@@ -25,6 +27,11 @@ export interface EngineSession {
 	 * surface for no measurable gain.
 	 */
 	faceSession: ort.InferenceSession | null;
+	/**
+	 * BlazeFace detector session, always WASM for the same reason as
+	 * `faceSession` — tiny model, and a second WebGPU surface is not worth it.
+	 */
+	faceDetSession: ort.InferenceSession | null;
 }
 
 // Extension pages report `crossOriginIsolated === true`, so the threaded WASM
@@ -95,6 +102,7 @@ export async function createSession({
 	wasmBase,
 	modelUrl,
 	faceModelUrl,
+	faceDetModelUrl,
 }: SessionOptions): Promise<EngineSession> {
 	// Absolute extension URL — a relative path would resolve against the ort
 	// module's own directory and 404 (docs/ENGINE_NOTES.md).
@@ -142,5 +150,16 @@ export async function createSession({
 			console.warn("[haramblur] face gender model unavailable:", err);
 		}
 	}
-	return { backend, session, faceSession };
+
+	let faceDetSession: ort.InferenceSession | null = null;
+	if (faceDetModelUrl != null) {
+		try {
+			faceDetSession = await ort.InferenceSession.create(faceDetModelUrl, {
+				executionProviders: ["wasm"],
+			});
+		} catch (err) {
+			console.warn("[haramblur] face detector model unavailable:", err);
+		}
+	}
+	return { backend, session, faceSession, faceDetSession };
 }

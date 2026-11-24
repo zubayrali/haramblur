@@ -35,6 +35,17 @@ const MODELS: readonly ModelFile[] = [
 		sha256: "0c3981b6c6bc67f32eca6d2d7be70dd3d11aa636c6506b79234adf4bb52d0af5",
 		size: 5_114_478,
 	},
+	{
+		// BlazeFace short-range (Apache-2.0, MediaPipe) ONNX export with
+		// decode+NMS+thresholding folded into the graph: feeds an RGB 128²
+		// image plus conf/iou/max-detection scalars, returns post-processed
+		// boxes. Dedicated face *detector* — NudeNet's FACE_* labels conflate
+		// detection and gender and miss small/group faces.
+		url: "https://huggingface.co/garavv/blazeface-onnx/resolve/main/blaze.onnx",
+		fileName: "blaze-face.onnx",
+		sha256: "564740c5146673c840257402cee8309161848e48e64d277a862ab4d501adf8a5",
+		size: 535_842,
+	},
 ];
 
 async function sha256OfFile(path: string): Promise<string> {
