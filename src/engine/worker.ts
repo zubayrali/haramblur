@@ -106,14 +106,23 @@ async function runTensor(rgba: Uint8ClampedArray): Promise<{
 	const input = new ort.Tensor("float32", rgbaToTensor(rgba), [1, 3, INPUT_SIZE, INPUT_SIZE]);
 	const inputName = session!.inputNames[0];
 	if (inputName == null) throw new Error("model exposes no input");
-	const outputs = await session!.run({ [inputName]: input });
-	const output = outputs[session!.outputNames[0]!];
-	if (output == null) throw new Error("model produced no output");
-	const [batch, rows, cols] = output.dims;
-	if (batch !== 1 || rows == null || cols == null || rows < 4) {
-		throw new Error(`unexpected output shape ${JSON.stringify(output.dims)}`);
+	let outputs: Record<string, ort.Tensor> | undefined;
+	try {
+		outputs = await session!.run({ [inputName]: input });
+		const output = outputs[session!.outputNames[0]!];
+		if (output == null) throw new Error("model produced no output");
+		const [batch, rows, cols] = output.dims;
+		if (batch !== 1 || rows == null || cols == null || rows < 4) {
+			throw new Error(`unexpected output shape ${JSON.stringify(output.dims)}`);
+		}
+		// Copy before dispose — tensor buffers are recycled by ORT.
+		return { data: new Float32Array(output.data as Float32Array), rows, cols };
+	} finally {
+		input.dispose();
+		if (outputs != null) {
+			for (const t of Object.values(outputs)) t.dispose();
+		}
 	}
-	return { data: output.data as Float32Array, rows, cols };
 }
 
 /**
@@ -150,8 +159,9 @@ function makeFaceClassifier(bitmap: ImageBitmap): FaceClassifier {
 			FACE_INPUT_SIZE,
 			FACE_INPUT_SIZE,
 		]);
+		let outputs: Record<string, ort.Tensor> | undefined;
 		try {
-			const outputs = await faceSession.run({ [inputName]: tensor });
+			outputs = await faceSession.run({ [inputName]: tensor });
 			const logits = (outputs["gender_logits"]?.data ??
 				outputs[faceSession.outputNames[0]!]?.data) as Float32Array | undefined;
 			const ageOut = (outputs["age"]?.data ?? outputs[faceSession.outputNames[2]!]?.data) as
@@ -166,6 +176,9 @@ function makeFaceClassifier(bitmap: ImageBitmap): FaceClassifier {
 			};
 		} finally {
 			tensor.dispose();
+			if (outputs != null) {
+				for (const t of Object.values(outputs)) t.dispose();
+			}
 		}
 	};
 }

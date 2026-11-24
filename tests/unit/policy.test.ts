@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { decide, exposedThreshold, faceThreshold } from "../../src/shared/policy";
+import {
+	blurCapableDetections,
+	blurThresholdFor,
+	decide,
+	exposedThreshold,
+	faceThreshold,
+	LABEL_SCORE_FLOOR,
+} from "../../src/shared/policy";
 import type { Detection } from "../../src/shared/protocol";
 import { DEFAULT_SETTINGS } from "../../src/shared/settings";
 
@@ -8,6 +15,8 @@ const base = {
 	blurFemale: true,
 	blurMale: false,
 	strictness: 0.5,
+	strictModesty: false,
+	skipChildren: true,
 };
 
 const det = (label: Detection["label"], score: number): Detection => ({
@@ -41,10 +50,38 @@ describe("decide", () => {
 		expect(decide(dets, { ...base, blurMale: true })).toBe("blur");
 	});
 
-	it("always blurs exposed nudity regardless of gender toggles", () => {
+	it("always blurs core exposed nudity regardless of gender toggles", () => {
 		const dets = [det("FEMALE_BREAST_EXPOSED", 0.5)];
 		expect(decide(dets, { ...base, blurFemale: false, blurMale: false })).toBe("blur");
-		expect(decide([det("MALE_GENITALIA_EXPOSED", 0.5)], base)).toBe("blur");
+		expect(decide([det("BUTTOCKS_EXPOSED", 0.5)], base)).toBe("blur");
+	});
+
+	it("applies an absolute floor to genitalia classes", () => {
+		// Cat-photo FP territory: below the floor → clear, above → blur.
+		expect(decide([det("MALE_GENITALIA_EXPOSED", LABEL_SCORE_FLOOR - 0.01)], base)).toBe("clear");
+		expect(decide([det("MALE_GENITALIA_EXPOSED", LABEL_SCORE_FLOOR + 0.01)], base)).toBe("blur");
+		expect(decide([det("FEMALE_GENITALIA_EXPOSED", LABEL_SCORE_FLOOR - 0.01)], base)).toBe("clear");
+		// Non-genitalia core classes have no floor.
+		expect(decide([det("ANUS_EXPOSED", 0.3)], base)).toBe("blur");
+	});
+
+	it("ignores modesty labels unless strictModesty is on", () => {
+		for (const label of [
+			"BELLY_EXPOSED",
+			"MALE_BREAST_EXPOSED",
+			"ARMPITS_EXPOSED",
+			"FEET_EXPOSED",
+			"FEMALE_BREAST_COVERED",
+		] as const) {
+			expect(decide([det(label, 0.99)], base), label).toBe("clear");
+			expect(decide([det(label, 0.99)], { ...base, strictModesty: true }), label).toBe("blur");
+		}
+	});
+
+	it("floors modesty labels even when strictModesty is on", () => {
+		const s = { ...base, strictModesty: true };
+		expect(decide([det("FEET_EXPOSED", LABEL_SCORE_FLOOR - 0.01)], s)).toBe("clear");
+		expect(decide([det("FEET_EXPOSED", LABEL_SCORE_FLOOR + 0.01)], s)).toBe("blur");
 	});
 
 	it("never blurs covered, non-gendered labels on their own", () => {
@@ -55,7 +92,7 @@ describe("decide", () => {
 			"ANUS_COVERED",
 			"BUTTOCKS_COVERED",
 		] as const) {
-			expect(decide([det(label, 0.99)], base), label).toBe("clear");
+			expect(decide([det(label, 0.99)], { ...base, strictModesty: true }), label).toBe("clear");
 		}
 	});
 
@@ -81,15 +118,29 @@ describe("decide", () => {
 		expect(decide([det("FACE_FEMALE", 0.3)], strict)).toBe("blur");
 	});
 
-	it("applies the same per-class gendered threshold to covered female parts", () => {
-		const s = { ...base, strictness: 1 };
-		expect(decide([det("FEMALE_BREAST_COVERED", 0.25)], s)).toBe("blur");
-		expect(decide([det("FEMALE_BREAST_COVERED", 0.15)], s)).toBe("clear");
-	});
-
 	it("clamps strictness outside 0..1", () => {
 		expect(faceThreshold(-1)).toBeCloseTo(0.6);
 		expect(faceThreshold(2)).toBeCloseTo(0.2);
+	});
+});
+
+describe("blurThresholdFor / blurCapableDetections", () => {
+	it("returns null for labels that can never blur", () => {
+		expect(blurThresholdFor("BELLY_COVERED", base)).toBeNull();
+		expect(blurThresholdFor("FEET_EXPOSED", base)).toBeNull(); // modesty off
+		expect(blurThresholdFor("FACE_FEMALE", { ...base, blurFemale: false })).toBeNull();
+	});
+
+	it("filters detections to exactly those decide() would blur on", () => {
+		const dets = [
+			det("FACE_FEMALE", 0.9),
+			det("FACE_FEMALE", 0.1),
+			det("FEET_EXPOSED", 0.99),
+			det("FEMALE_GENITALIA_EXPOSED", 0.6),
+			det("BELLY_COVERED", 0.99),
+		];
+		const capable = blurCapableDetections(dets, base);
+		expect(capable.map((d) => d.score)).toEqual([0.9, 0.6]);
 	});
 });
 

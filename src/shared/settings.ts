@@ -10,7 +10,7 @@
  * the v1 → v2 migration runs on the user's real stored object on update.
  */
 export const SETTINGS_KEY = "sync:hb-settings";
-export const SETTINGS_VERSION = 2;
+export const SETTINGS_VERSION = 3;
 
 export interface Settings {
 	/** Master on/off switch (old `status`). */
@@ -27,6 +27,17 @@ export interface Settings {
 	blurVideos: boolean;
 	blurMale: boolean;
 	blurFemale: boolean;
+	/**
+	 * Also blur modesty/secondary exposure classes (bare belly, armpits, feet,
+	 * covered chest, male breast). Off by default — NudeNet's precision on
+	 * these classes is poor on ordinary photos.
+	 */
+	strictModesty: boolean;
+	/**
+	 * Skip blurring faces the gender model estimates as children
+	 * (age < CHILD_AGE_MAX). Wired up once detections carry `age`.
+	 */
+	skipChildren: boolean;
 	unblurImages: boolean;
 	unblurVideos: boolean;
 	/** Hostnames where detection is disabled (old `whitelist`). */
@@ -48,6 +59,8 @@ export const DEFAULT_SETTINGS: Settings = {
 	blurVideos: true,
 	blurMale: false,
 	blurFemale: true,
+	strictModesty: false,
+	skipChildren: true,
 	unblurImages: false,
 	unblurVideos: false,
 	allowlist: [],
@@ -91,6 +104,8 @@ export function migrateLegacySettings(legacy: LegacySettings): Settings {
 		blurVideos: bool(legacy.blurVideos, DEFAULT_SETTINGS.blurVideos),
 		blurMale: bool(legacy.blurMale, DEFAULT_SETTINGS.blurMale),
 		blurFemale: bool(legacy.blurFemale, DEFAULT_SETTINGS.blurFemale),
+		strictModesty: DEFAULT_SETTINGS.strictModesty,
+		skipChildren: DEFAULT_SETTINGS.skipChildren,
 		unblurImages: bool(legacy.unblurImages, DEFAULT_SETTINGS.unblurImages),
 		unblurVideos: bool(legacy.unblurVideos, DEFAULT_SETTINGS.unblurVideos),
 		allowlist: Array.isArray(legacy.whitelist)

@@ -30,7 +30,6 @@ const set = (labels: readonly NudeNetLabel[]): ReadonlySet<NudeNetLabel> => new 
 /** Labels that describe a woman (face or body parts, covered or exposed). */
 export const FEMALE_LABELS = set([
 	"FACE_FEMALE",
-	"FEMALE_BREAST_COVERED",
 	"FEMALE_BREAST_EXPOSED",
 	"FEMALE_GENITALIA_COVERED",
 	"FEMALE_GENITALIA_EXPOSED",
@@ -43,17 +42,30 @@ export const MALE_LABELS = set([
 	"MALE_GENITALIA_EXPOSED",
 ] as const);
 
-/** Any exposed body part, regardless of who it belongs to. */
-export const EXPOSED_LABELS = set([
-	"BUTTOCKS_EXPOSED",
+/**
+ * Explicit nudity — always blurred regardless of gender toggles.
+ * Genitalia/anus classes carry an absolute score floor in policy.ts because
+ * NudeNet false-positives on them at moderate confidence (animals, art).
+ */
+export const CORE_EXPOSED_LABELS = set([
 	"FEMALE_BREAST_EXPOSED",
 	"FEMALE_GENITALIA_EXPOSED",
-	"MALE_BREAST_EXPOSED",
-	"ANUS_EXPOSED",
-	"FEET_EXPOSED",
-	"ARMPITS_EXPOSED",
-	"BELLY_EXPOSED",
 	"MALE_GENITALIA_EXPOSED",
+	"BUTTOCKS_EXPOSED",
+	"ANUS_EXPOSED",
+] as const);
+
+/**
+ * Secondary exposure / modesty classes (bare belly, armpits, feet, covered
+ * chest, male breast). Eval showed ~0 precision on these at default
+ * thresholds — they only blur when the user opts into `strictModesty`.
+ */
+export const MODESTY_LABELS = set([
+	"BELLY_EXPOSED",
+	"MALE_BREAST_EXPOSED",
+	"ARMPITS_EXPOSED",
+	"FEET_EXPOSED",
+	"FEMALE_BREAST_COVERED",
 ] as const);
 
 /** Covered body parts; never blurred on their own unless gendered (see policy). */
@@ -70,6 +82,7 @@ export const COVERED_LABELS = set([
 export const LABEL_GROUPS = {
 	female: FEMALE_LABELS,
 	male: MALE_LABELS,
-	exposed: EXPOSED_LABELS,
+	coreExposed: CORE_EXPOSED_LABELS,
+	modesty: MODESTY_LABELS,
 	covered: COVERED_LABELS,
 } as const;

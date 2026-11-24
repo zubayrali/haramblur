@@ -23,6 +23,8 @@ import type { WorkerInMessage, WorkerOutMessage } from "./worker";
 export const BOOT_TIMEOUT_MS = 30_000;
 /** A single inference may not hang forever. */
 export const INFER_TIMEOUT_MS = 30_000;
+/** Abort a stalled image fetch so it can't hold a queue slot forever. */
+export const FETCH_TIMEOUT_MS = 15_000;
 export const VERDICT_CACHE_CAP = 500;
 
 /** The slice of the Worker interface the host needs (injectable for tests). */
@@ -75,7 +77,7 @@ async function decodeDataUrl(dataUrl: string): Promise<ImageBitmap> {
 }
 
 async function fetchBitmap(url: string): Promise<ImageBitmap> {
-	const res = await fetch(url);
+	const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
 	if (!res.ok) throw new Error(`fetch ${url} → HTTP ${res.status}`);
 	return createImageBitmap(await res.blob());
 }
@@ -85,7 +87,9 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 	const getS = opts.getSettings ?? (async () => DEFAULT_SETTINGS);
 	const bootTimeoutMs = opts.bootTimeoutMs ?? BOOT_TIMEOUT_MS;
 	const inferTimeoutMs = opts.inferTimeoutMs ?? INFER_TIMEOUT_MS;
-	const cache = new LruCache<string, Verdict>(opts.cacheCap ?? VERDICT_CACHE_CAP);
+	const cache = new LruCache<string, { detections: Detection[]; detailed: boolean }>(
+		opts.cacheCap ?? VERDICT_CACHE_CAP,
+	);
 
 	const actor = createActor(engineMachine);
 	let worker: WorkerHandle | null = null;
@@ -225,9 +229,17 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 		});
 
 	async function run(request: EngineRequest): Promise<ClassifyResult> {
-		if (request.kind === "image") {
-			const hit = cache.get(request.url);
-			if (hit != null) return { ...hit, cached: true, ms: 0 };
+		const s = request.settings ?? (await getS());
+		// The cache stores raw detections, not verdicts: `decide()` is cheap and
+		// must re-run against current settings so strictness/gender toggles take
+		// effect on cached URLs. `detailed` records whether the tiled detail
+		// pass already ran — a cached non-detailed `clear` still needs it.
+		const hit = request.kind === "image" ? cache.get(request.url) : undefined;
+		if (hit != null) {
+			const decision = decide(hit.detections, s);
+			if (decision === "blur" || hit.detailed) {
+				return { decision, reasons: hit.detections, ms: 0, cached: true };
+			}
 		}
 		const bootError = await waitForReady(bootTimeoutMs);
 		if (bootError != null) return { error: bootError };
@@ -235,17 +247,27 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 		try {
 			const bitmap = await decodeRequest(request);
 			try {
-				let detections = await infer(bitmap, false);
-				const s = request.settings ?? (await getS());
-				// Detail pass (WP7): a `clear` verdict on an image bigger than the
-				// model input may hide faces letterboxed below the model floor, so
-				// re-scan overlapping crops before committing to clear.
-				if (
-					decide(detections, s) === "clear" &&
-					tileRects(bitmap.width, bitmap.height).length > 0
-				) {
-					const tiled = await infer(bitmap, true);
-					detections = mergeDetections(detections, tiled);
+				let detections: Detection[];
+				let detailed = false;
+				const tiles = tileRects(bitmap.width, bitmap.height);
+				if (hit != null) {
+					// Cached non-detailed clear: skip the whole pass, run detail only.
+					detections = [...hit.detections];
+					if (tiles.length > 0) {
+						const tiled = await infer(bitmap, true);
+						detections = mergeDetections(detections, tiled);
+						detailed = true;
+					}
+				} else {
+					detections = await infer(bitmap, false);
+					// Detail pass (WP7): a `clear` verdict on an image bigger than the
+					// model input may hide faces letterboxed below the model floor, so
+					// re-scan overlapping crops before committing to clear.
+					if (decide(detections, s) === "clear" && tiles.length > 0) {
+						const tiled = await infer(bitmap, true);
+						detections = mergeDetections(detections, tiled);
+						detailed = true;
+					}
 				}
 				const verdict: Verdict = {
 					decision: decide(detections, s),
@@ -253,7 +275,9 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 					ms: Math.round(performance.now() - t0),
 					cached: false,
 				};
-				if (request.kind === "image") cache.set(request.url, verdict);
+				if (request.kind === "image") {
+					cache.set(request.url, { detections, detailed });
+				}
 				return verdict;
 			} finally {
 				bitmap.close();
