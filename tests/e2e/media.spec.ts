@@ -262,7 +262,8 @@ test("popup ping, getTabStats, and engineStatus return real values", async () =>
 		expect(status.backend).not.toBeNull();
 
 		await popup.reload();
-		const label = status.state === "degraded" ? "Degraded" : "Ready";
+		// `ready` renders as "Active · <backend>"; `degraded` keeps its warning label.
+		const label = status.state === "degraded" ? "Degraded" : /Active · (WebGPU|WASM)/;
 		await expect(popup.getByTestId("engine-state")).toContainText(label, {
 			timeout: 30_000,
 		});

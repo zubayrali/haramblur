@@ -50,6 +50,12 @@
 	"blurVideos": {
 		"message": "Videolar"
 	},
+	"regionBlur": {
+		"message": "Bölge bulanıklığı"
+	},
+	"regionBlurHint": {
+		"message": "Tüm görsel yerine yalnızca algılanan bölgeleri bulanıklaştır"
+	},
 	"facesToBlur": {
 		"message": "Bulanıklaştırılacak yüzler"
 	},
@@ -58,6 +64,18 @@
 	},
 	"blurFemale": {
 		"message": "Kadın"
+	},
+	"strictModesty": {
+		"message": "Katı edep"
+	},
+	"strictModestyHint": {
+		"message": "Karın, koltuk altı, ayak ve kapalı göğsü de bulandır"
+	},
+	"skipChildren": {
+		"message": "Çocukları atla"
+	},
+	"skipChildrenHint": {
+		"message": "15 yaş altı tahmin edilen yüzleri bulandırma"
 	},
 	"unblurOnHover": {
 		"message": "Üzerine gelindiğinde bulanıklığı kaldır"
@@ -125,6 +143,9 @@
 	},
 	"engineReady": {
 		"message": "Hazır"
+	},
+	"engineActive": {
+		"message": "Etkin"
 	},
 	"engineDegraded": {
 		"message": "Kısıtlı"
@@ -203,6 +224,9 @@
 	},
 	"feedbackLead": {
 		"message": "Geri bildiriminizi şuradan almak isteriz:"
+	},
+	"feedbackIssues": {
+		"message": "GitHub sorunları"
 	},
 	"feedbackForm": {
 		"message": "Form"

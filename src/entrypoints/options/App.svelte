@@ -22,14 +22,29 @@
 			url: "https://github.com/zubayrali/haramblur",
 		},
 		{
+			name: "HaramBlur 0.2.x (upstream)",
+			license: "AGPL-3.0",
+			url: "https://github.com/alganzory/HaramBlur",
+		},
+		{
 			name: "NudeNet 320n (detector model)",
 			license: "AGPL-3.0",
 			url: "https://huggingface.co/deepghs/nudenet_onnx",
 		},
 		{
-			name: "MediaPipe BlazeFace (face helper)",
+			name: "OpenCV YuNet (face detector)",
 			license: "Apache-2.0",
-			url: "https://ai.google.dev/edge/mediapipe/solutions/vision/face_detector",
+			url: "https://github.com/opencv/opencv_zoo",
+		},
+		{
+			name: "FastFace small112 (gender/age model)",
+			license: "Apache-2.0",
+			url: "https://huggingface.co/iFurySt/fastface",
+		},
+		{
+			name: "nsfwjs MobileNetV2 (NSFW classifier)",
+			license: "MIT",
+			url: "https://github.com/infectedbyamy/nsfwjs",
 		},
 		{ name: "onnxruntime-web", license: "MIT", url: "https://github.com/microsoft/onnxruntime" },
 		{ name: "WXT", license: "MIT", url: "https://wxt.dev" },
@@ -138,6 +153,13 @@
 				testid="opt-blur-videos"
 				onchange={(v) => persist({ blurVideos: v })}
 			/>
+			<Toggle
+				label={t("regionBlur")}
+				hint={t("regionBlurHint")}
+				bind:checked={s.regionBlur}
+				testid="opt-region-blur"
+				onchange={(v) => persist({ regionBlur: v })}
+			/>
 		</Section>
 
 		<Section title={t("facesToBlur")} testid="section-faces">
@@ -152,6 +174,20 @@
 				bind:checked={s.blurFemale}
 				testid="opt-blur-female"
 				onchange={(v) => persist({ blurFemale: v })}
+			/>
+			<Toggle
+				label={t("strictModesty")}
+				hint={t("strictModestyHint")}
+				bind:checked={s.strictModesty}
+				testid="opt-strict-modesty"
+				onchange={(v) => persist({ strictModesty: v })}
+			/>
+			<Toggle
+				label={t("skipChildren")}
+				hint={t("skipChildrenHint")}
+				bind:checked={s.skipChildren}
+				testid="opt-skip-children"
+				onchange={(v) => persist({ skipChildren: v })}
 			/>
 			<SliderRow
 				label={t("strictnessLabel")}
@@ -222,17 +258,12 @@
 			<p class="mt-3 text-sm text-gray-600 dark:text-gray-300">
 				{t("feedbackLead")}
 				<a
-					href="https://forms.gle/mDDjh44MKRVemWX86"
+					href="https://github.com/zubayrali/haramblur/issues"
 					target="_blank"
 					rel="noreferrer"
-					class="text-emerald-700 hover:underline dark:text-emerald-400">{t("feedbackForm")}</a
-				>
-				{t("feedbackOr")}
-				<a
-					href="mailto:md.alganzory@gmail.com"
-					class="text-emerald-700 hover:underline dark:text-emerald-400">{t("feedbackEmail")}</a
-				>
-				❤️
+					class="text-emerald-700 hover:underline dark:text-emerald-400"
+					data-testid="feedback-link">{t("feedbackIssues")}</a
+				>.
 			</p>
 		</Section>
 	{/if}

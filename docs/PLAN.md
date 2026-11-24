@@ -5,7 +5,7 @@ This repository is a fork of [alganzory/HaramBlur](https://github.com/alganzory/
 ## Goals
 
 1. **No media slips through.** New images and videos are blurred until they have been classified (fail closed, user-configurable). Media seen before the models finish loading is queued, never dropped.
-2. **Better detection.** Replace nsfwjs (5 whole-image classes) and Human (CDN-loaded face/gender) with one bundled region detector: NudeNet 320n (YOLOv8n, ONNX). It returns boxes for 18 classes, including `FACE_FEMALE`, `FACE_MALE`, and covered and exposed body parts.
+2. **Better detection.** Replace nsfwjs (5 whole-image classes) and Human (CDN-loaded face/gender) with bundled models: NudeNet 320n (YOLOv8n, ONNX) for region detection (18 classes including `FACE_FEMALE`, `FACE_MALE`, and covered/exposed body parts), OpenCV YuNet for faces with landmarks, FastFace for landmark-aligned gender/age, and a bundled nsfwjs MobileNetV2 for the whole-image suggestive/anime signal the original relied on.
 3. **Blur what the user sees.** Classify `currentSrc` (srcset and `<picture>`), CSS background images, `poster`, and media inside iframes.
 4. **Private and offline.** Every model ships inside the extension. No CDN, no telemetry, no remote inference.
 5. **Cross-browser from one codebase.** Chrome/Edge (MV3) and Firefox from the same source with WXT.
@@ -25,15 +25,17 @@ This repository is a fork of [alganzory/HaramBlur](https://github.com/alganzory/
 | ML runtime        | `onnxruntime-web` `1.31.x`; WebGPU EP when `navigator.gpu` gives an adapter, else WASM (SIMD, threads when cross-origin isolated)                                                                                                                              | Runs in a dedicated Worker inside the engine host page                                                      |
 | Engine host       | Chrome: offscreen document (`reasons: ["WORKERS"]`). Firefox: the background page                                                                                                                                                                              | Same engine code; a small host adapter                                                                      |
 | Detector          | NudeNet `320n.onnx`, from Hugging Face `deepghs/nudenet_onnx`, SHA-256 `c15d8273adad2d0a92f014cc69ab2d6c311a06777a55545f2c4eb46f51911f0f` (12,150,158 bytes) pinned, fetched by `pnpm models:fetch` into `public/models/` (git-ignored)                        | AGPL-3.0, compatible with this repo                                                                         |
-| Face helper       | MediaPipe BlazeFace short-range (optional, behind a setting)                                                                                                                                                                                                   | Exact face boxes for region blur later                                                                      |
+| Face detector    | OpenCV YuNet `face_detection_yunet_2023mar.onnx` (Apache-2.0) — one letterboxed pass with 5 landmarks; replaces MediaPipe BlazeFace which missed small/group faces                                                                                              | Landmark-aligned crops feed the gender model                                                                |
+| Gender / age     | FastFace `fastface-small-112.onnx` (Apache-2.0) on eye-aligned crops; abstains under 0.85 confidence; `age` rides the `Detection` for `skipChildren`                                                                                                            | Replaces NudeNet's weak `FACE_*` gender guesses                                                             |
+| Whole-image NSFW | nsfwjs MobileNetV2 uint8 (MIT weights, ONNX port) at 224×224 → `NSFW_EXPLICIT` / `NSFW_SUGGESTIVE` full-frame detections; whole-pass only, skipped when the pass already blurs                                                                                  | Covers bikinis/suggestive/anime that region labels miss                                                      |
 | Image pixels      | The engine fetches `currentSrc` itself (extension host permissions avoid CORS). `data:` and `blob:` URLs: the content script draws to a canvas and sends a downscaled JPEG data URL                                                                            | Revisit later: transferable `ImageBitmap` through an extension iframe                                       |
-| Video frames      | `requestVideoFrameCallback` (rAF fallback); a downscaled frame of at most 320 px is sent as a JPEG data URL; adaptive rate (default 2 fps, up to 6 fps after a scene change); pause while hidden, paused or off-screen; hysteresis so the blur doesn't flicker |                                                                                                             |
-| Blur              | CSS `filter: blur(var(--hb-blur)) grayscale(...)` on the element; reveal on hover (delay) or click, per user setting                                                                                                                                           | Region blur is v1.1                                                                                         |
+| Video frames      | `requestVideoFrameCallback` (rAF fallback); a downscaled frame of at most 480 px is sent as WebP q0.92 (PNG fallback); adaptive rate (default 2 fps, up to 6 fps after a scene change); pause while hidden, paused or off-screen; hysteresis so the blur doesn't flicker |                                                                                                             |
+| Blur              | CSS `filter: blur(var(--hb-blur)) grayscale(...)` on the element; reveal on hover (delay) or click, per user setting. Region blur (`regionBlur`, default on): one `#hb-region-portal` div on `<html>` with an open shadow root tracks clipped viewport rects and paints `backdrop-filter` boxes — safe for React-managed parents (X.com), background images, and transforms | Whole-element blur remains the fallback for full-frame detections                                            |
 | Testing           | Vitest (unit), Playwright with the built unpacked extension in Chromium (E2E), eval script that scores the engine on a labelled fixture set                                                                                                                    | CI: GitHub Actions                                                                                          |
 
 ### Not in v1
 
-Region-only blur, Safari, Chrome built-in AI, WebNN, server-side anything, Effect 4 (too new for the team's tooling; revisit when the codebase is stable).
+Safari, Chrome built-in AI, WebNN, server-side anything, Effect 4 (too new for the team's tooling; revisit when the codebase is stable).
 
 ## Architecture
 
@@ -43,8 +45,9 @@ page (all frames)                     extension
 │ content script           │ messages │ background (SW / page)│ ensure │ engine host                 │
 │  discovery (Mutation +   │ ───────▶ │  routes classify →    │ ─────▶ │  (offscreen doc / FF bg)    │
 │   Intersection observers)│          │  engine; settings;    │        │   Worker: onnxruntime-web   │
-│  queue (visible first)   │ ◀─────── │  context menu; badge  │ ◀───── │   NudeNet + BlazeFace       │
-│  blur / reveal CSS       │ verdict  └──────────────────────┘        │   policy → verdict, cache   │
+│  queue (visible first)   │ ◀─────── │  context menu; badge  │ ◀───── │   NudeNet + YuNet +        │
+│  blur / reveal CSS       │ verdict  └──────────────────────┘        │   FastFace + nsfwjs        │
+│  region portal (shadow)  │                                          │   policy → verdict, cache   │
 │  video sampler (XState)  │                                          └─────────────────────────────┘
 └──────────────────────────┘
 popup / options (Svelte) ── settings storage ──▶ all contexts listen for changes
@@ -56,7 +59,7 @@ popup / options (Svelte) ── settings storage ──▶ all contexts listen f
 -   `classifyFrame({ dataUrl, videoId, ts }) → Verdict`
 -   `engineStatus() → { state: "booting" | "ready" | "degraded" | "failed", backend: "webgpu" | "wasm" | null, error?: string }`
 -   `Verdict = { decision: "blur" | "clear", reasons: Detection[], ms: number, cached: boolean }`
--   `Detection = { label: NudeNetLabel, score: number, box: [x, y, w, h] }` (box normalized 0..1)
+-   `Detection = { label: DetectionLabel, score: number, box: [x, y, w, h], age?: number }` (box normalized 0..1; `age` only on face detections)
 
 Requests made while the engine is booting wait (bounded, default 30 s) instead of failing. On timeout or error the content script applies the user's fail mode (default: keep blurred, show a small "couldn't check" badge on hover).
 
@@ -64,19 +67,21 @@ Requests made while the engine is booting wait (bounded, default 30 s) instead o
 
 Input: detections + settings. Output: `blur` or `clear`. Settings map to per-class thresholds:
 
--   `blurFemale` → `FACE_FEMALE`, `FEMALE_BREAST_*`, `FEMALE_GENITALIA_*` …
+-   `blurFemale` → `FACE_FEMALE` (YuNet+FastFace), `FEMALE_BREAST_*`, `FEMALE_GENITALIA_*` …
 -   `blurMale` → `FACE_MALE`, `MALE_BREAST_EXPOSED`, `MALE_GENITALIA_EXPOSED`
+-   `strictModesty` (default off) → `MODESTY_LABELS`: belly/armpits/feet covered classes — high false-positive rate on clothed photos, so opt-in.
+-   `skipChildren` → `FACE_*` detections with `age < 15` don't blur on their own (never suppresses `CORE_EXPOSED_LABELS`).
+-   `NSFW_EXPLICIT`/`NSFW_SUGGESTIVE` always blur regardless of gender toggles; threshold lerps with `strictness`.
 -   Exposed nudity of any person is always blurred unless the extension is off for the site.
--   `strictness` 0..1 → threshold = lerp(0.6, 0.2, strictness) for faces; exposed nudity uses a lower threshold.
 
 ## Repository layout
 
 ```
 src/
   entrypoints/        background.ts, content/, offscreen/, popup/, options/
-  engine/             worker.ts, nudenet.ts (pre/post-processing, NMS), backend.ts, cache.ts, lifecycle.ts
-  content/            discovery.ts, queue.ts, blur.ts, video/, frames.ts
-  shared/             protocol.ts, settings.ts, policy.ts, labels.ts, i18n
+  engine/             worker.ts, nudenet.ts, yunet.ts, fastface.ts, nsfw.ts (pre/post-processing, NMS), backend.ts, cache.ts, lifecycle.ts
+  content/            discovery.ts, queue.ts, blur.ts, region.ts (shadow-DOM portal), site.ts, video/ (manager, sampler, frames)
+  shared/             protocol.ts, settings.ts, policy.ts, labels.ts, site.ts (allowlist), i18n
   ui/                 Svelte components
 public/models/        fetched by scripts/fetch-models.ts (git-ignored)
 scripts/              fetch-models.ts, eval.ts
@@ -97,6 +102,17 @@ Each work package is one PR into `main`. Packages in the same wave run in parall
 | 2    | **WP4 UI**                       | `src/entrypoints/popup/`, `src/entrypoints/options/`, `src/ui/`, `src/shared/i18n/`, `public/_locales/` | popup (on/off, this site, quick toggles), options page (all settings, allowlist, about/licenses), en/ar/tr/ur translations carried over, RTL, context menu "reveal this"           |
 | 3    | **WP5 Integration + E2E + eval** | `tests/e2e/`, `scripts/eval.ts`, fixes across packages                                                  | Playwright E2E covers: cold start, srcset/picture, lazy-loaded, background image, iframe, video, reveal, site allowlist; eval prints precision/recall per class on the fixture set |
 | 3    | **WP6 Firefox + release**        | WXT browser config, `docs/`, README                                                                     | `wxt build -b firefox` works with the engine in the background page; `pnpm zip` produces store zips for Chrome and Firefox; README rewritten                                       |
+
+### Phase 2 — accuracy & pipeline hardening (WP-A…WP-F)
+
+Follow-up packages after v1 acceptance, each one PR:
+
+-   **WP-A policy + engine host**: label groups (`CORE_EXPOSED` always-on, `MODESTY` opt-in via `strictModesty`), 0.55 floor on genitalia classes, verdict cache stores detections so settings re-decide cached URLs, `skipChildren` plumbing.
+-   **WP-B benchmark**: `manifest.v2.json` dev/test split + `scripts/eval-compare.ts` (per-split metrics, `--baseline` head-to-head).
+-   **WP-C face pipeline**: YuNet whole-image pass → landmark-aligned FastFace gender/age → synthetic `FACE_*` detections with `age`; NudeNet `FACE_*` suppressed on covered boxes.
+-   **WP-D whole-image NSFW**: bundled nsfwjs classifier → `NSFW_EXPLICIT`/`NSFW_SUGGESTIVE`, whole-pass only, skipped when already blurred.
+-   **WP-E region blur + pipeline fixes**: `#hb-region-portal` shadow-DOM overlays (React-safe, bg-image/video/clip-aware), X.com paired-media skip, `blurryStartMode`/`failClosed` decoupled (settings v4), bounded queue LRU, unified video states, 480 px WebP frames.
+-   **WP-F UI + release**: popup uses shared `isAllowlisted` + `Active · <backend>` badge; options exposes `regionBlur`/`strictModesty`/`skipChildren`; corrected license/feedback links; Chrome MV3 + Firefox MV2 packages verified.
 
 ## Acceptance for v1
 

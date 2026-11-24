@@ -50,6 +50,12 @@
 	"blurVideos": {
 		"message": "Videos"
 	},
+	"regionBlur": {
+		"message": "Region blur"
+	},
+	"regionBlurHint": {
+		"message": "Blur only the detected areas instead of the whole image"
+	},
 	"facesToBlur": {
 		"message": "Faces to Blur"
 	},
@@ -58,6 +64,18 @@
 	},
 	"blurFemale": {
 		"message": "Female"
+	},
+	"strictModesty": {
+		"message": "Strict modesty"
+	},
+	"strictModestyHint": {
+		"message": "Also blur belly, armpits, feet, and covered chest"
+	},
+	"skipChildren": {
+		"message": "Skip children"
+	},
+	"skipChildrenHint": {
+		"message": "Don't blur faces estimated to be under 15"
 	},
 	"unblurOnHover": {
 		"message": "Unblur on hover"
@@ -125,6 +143,9 @@
 	},
 	"engineReady": {
 		"message": "Ready"
+	},
+	"engineActive": {
+		"message": "Active"
 	},
 	"engineDegraded": {
 		"message": "Degraded"
@@ -203,6 +224,9 @@
 	},
 	"feedbackLead": {
 		"message": "We love to hear your feedback through our"
+	},
+	"feedbackIssues": {
+		"message": "GitHub issues"
 	},
 	"feedbackForm": {
 		"message": "Form"

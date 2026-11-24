@@ -50,6 +50,12 @@
 	"blurVideos": {
 		"message": "ویڈیوز"
 	},
+	"regionBlur": {
+		"message": "علاقہ دھندلاپن"
+	},
+	"regionBlurHint": {
+		"message": "پوری تصویر کے بجائے صرف شناخت شدہ علاقوں کو دھندلا کریں"
+	},
 	"facesToBlur": {
 		"message": "چہرے کو دھندلا کرنا"
 	},
@@ -58,6 +64,18 @@
 	},
 	"blurFemale": {
 		"message": "عورت"
+	},
+	"strictModesty": {
+		"message": "سخت حیا"
+	},
+	"strictModestyHint": {
+		"message": "پیٹ، بغلیں، پاؤں اور ڈھکا ہوا سینہ بھی شامل کریں"
+	},
+	"skipChildren": {
+		"message": "بچوں کو چھوڑیں"
+	},
+	"skipChildrenHint": {
+		"message": "15 سال سے کم اندازہ شدہ چہروں کو دھندلا نہ کریں"
 	},
 	"unblurOnHover": {
 		"message": "ہوور پر دھندلا پن ختم کریں"
@@ -125,6 +143,9 @@
 	},
 	"engineReady": {
 		"message": "تیار"
+	},
+	"engineActive": {
+		"message": "فعال"
 	},
 	"engineDegraded": {
 		"message": "کم کارکردگی"
@@ -203,6 +224,9 @@
 	},
 	"feedbackLead": {
 		"message": "ہمیں آپ کی رائے سننا پسند ہے"
+	},
+	"feedbackIssues": {
+		"message": "GitHub مسائل"
 	},
 	"feedbackForm": {
 		"message": "فارم"

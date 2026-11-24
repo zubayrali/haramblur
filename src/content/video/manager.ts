@@ -1,8 +1,9 @@
 import type { Verdict } from "../../shared/protocol";
 import { DEFAULT_SETTINGS, type Settings } from "../../shared/settings";
+import { isAllowlisted } from "../../shared/site";
 import { blurOnError, blurWhilePending, setBlurred, setReasons, setState } from "../blur";
 import { applyBlurMode, removeRegionBlur } from "../region";
-import { isAllowlisted, reasonsToJson } from "../site";
+import { reasonsToJson } from "../site";
 import { HYSTERESIS_WINDOW, isHighConfidence, VideoSampler } from "./sampler";
 import { defaultEnvironment, type SamplerEnvironment, type VideoManagerDeps } from "./types";
 

@@ -2,40 +2,10 @@ import { decide } from "../shared/policy";
 import type { Detection, VerdictDecision } from "../shared/protocol";
 import type { Settings } from "../shared/settings";
 
-/**
- * Per-site allowlist + verdict-attr helpers. Pure functions so they stay
- * unit-testable without a browser (docs/PLAN.md "Policy": the per-site on/off
- * check lives in the content pipeline).
- */
-
-/** Normalize an allowlist entry: strip scheme, path, port, lowercase. */
-export function normalizeHostEntry(entry: string): string {
-	let host = entry.trim().toLowerCase();
-	if (host.length === 0) return "";
-	// Strip a leading scheme and anything after the first "/" so entries like
-	// "https://example.com/path" still work.
-	host = host.replace(/^[a-z][a-z0-9+.-]*:\/\//, "");
-	const slash = host.indexOf("/");
-	if (slash >= 0) host = host.slice(0, slash);
-	const colon = host.indexOf(":");
-	if (colon >= 0) host = host.slice(0, colon);
-	return host;
-}
-
-/**
- * `hostname` matches the allowlist when it equals an entry or is a subdomain of
- * one: "www.example.com" is covered by "example.com". Malformed entries are
- * ignored.
- */
-export function isAllowlisted(hostname: string, allowlist: readonly string[]): boolean {
-	const host = hostname.toLowerCase();
-	for (const entry of allowlist) {
-		const normalized = normalizeHostEntry(entry);
-		if (normalized.length === 0) continue;
-		if (host === normalized || host.endsWith(`.${normalized}`)) return true;
-	}
-	return false;
-}
+// Allowlist helpers live in shared/site.ts so the popup and video manager
+// share the content pipeline's implementation; re-export for existing
+// content-side importers.
+export { isAllowlisted, normalizeHostEntry } from "../shared/site";
 
 export interface ReasonEntry {
 	label: Detection["label"];
