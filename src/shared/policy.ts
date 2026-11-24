@@ -1,4 +1,4 @@
-import { LABEL_GROUPS, type NudeNetLabel } from "./labels";
+import { type DetectionLabel, LABEL_GROUPS, NSFW_LABELS } from "./labels";
 import type { Detection, VerdictDecision } from "./protocol";
 import type { Settings } from "./settings";
 
@@ -28,6 +28,8 @@ export const FACE_THRESHOLD_MAX = 0.6;
 export const FACE_THRESHOLD_MIN = 0.2;
 export const EXPOSED_THRESHOLD_MAX = 0.4;
 export const EXPOSED_THRESHOLD_MIN = 0.15;
+export const NSFW_THRESHOLD_MAX = 0.4;
+export const NSFW_THRESHOLD_MIN = 0.15;
 
 /**
  * Absolute score floor for the genitalia classes. NudeNet fires
@@ -35,7 +37,7 @@ export const EXPOSED_THRESHOLD_MIN = 0.15;
  * higher. Also applied to modesty labels, which are noisy by nature.
  */
 export const LABEL_SCORE_FLOOR = 0.55;
-const FLOOR_LABELS: ReadonlySet<NudeNetLabel> = new Set([
+const FLOOR_LABELS: ReadonlySet<string> = new Set([
 	"FEMALE_GENITALIA_EXPOSED",
 	"MALE_GENITALIA_EXPOSED",
 ]);
@@ -66,13 +68,25 @@ export function exposedThreshold(strictness: number): number {
 	return lerp(EXPOSED_THRESHOLD_MAX, EXPOSED_THRESHOLD_MIN, clamp01(strictness));
 }
 
+const NSFW_LABEL_SET: ReadonlySet<string> = new Set(NSFW_LABELS);
+
+/**
+ * Whole-image NSFW detections carry a *margin* score (nsfw prob − sfw prob),
+ * not a calibrated probability — hence their own threshold band. Always on:
+ * the classifier only emits when it already beat SFW.
+ */
+export function nsfwThreshold(strictness: number): number {
+	return lerp(NSFW_THRESHOLD_MAX, NSFW_THRESHOLD_MIN, clamp01(strictness));
+}
+
 /**
  * Confidence threshold at which `label` causes a blur under `settings`, or
  * `null` when the label can never blur (covered non-gendered parts, or
  * modesty classes while `strictModesty` is off). This is the single source of
  * truth shared by `decide()` and the region-blur layer.
  */
-export function blurThresholdFor(label: NudeNetLabel, settings: PolicySettings): number | null {
+export function blurThresholdFor(label: DetectionLabel, settings: PolicySettings): number | null {
+	if (NSFW_LABEL_SET.has(label)) return nsfwThreshold(settings.strictness);
 	if (LABEL_GROUPS.coreExposed.has(label)) {
 		const floor = FLOOR_LABELS.has(label) ? LABEL_SCORE_FLOOR : 0;
 		return Math.max(exposedThreshold(settings.strictness), floor);

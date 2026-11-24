@@ -25,7 +25,19 @@ export const NUDENET_LABELS = [
 
 export type NudeNetLabel = (typeof NUDENET_LABELS)[number];
 
-const set = (labels: readonly NudeNetLabel[]): ReadonlySet<NudeNetLabel> => new Set(labels);
+/**
+ * Whole-image classifier labels (nsfwjs MobileNetV2) — emitted as
+ * full-frame detections `[0,0,1,1]` when the suggestive/anime signal fires.
+ * Not NudeNet classes; they exist so `decide()`/region blur treat them
+ * uniformly with localized detections.
+ */
+export const NSFW_LABELS = ["NSFW_EXPLICIT", "NSFW_SUGGESTIVE"] as const;
+export type NsfwLabel = (typeof NSFW_LABELS)[number];
+
+/** Any label a Detection can carry. */
+export type DetectionLabel = NudeNetLabel | NsfwLabel;
+
+const set = (labels: readonly string[]): ReadonlySet<string> => new Set(labels);
 
 /** Labels that describe a woman (face or body parts, covered or exposed). */
 export const FEMALE_LABELS = set([

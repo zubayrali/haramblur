@@ -44,6 +44,15 @@ const MODELS: readonly ModelFile[] = [
 		sha256: "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
 		size: 232_589,
 	},
+	{
+		// nsfwjs MobileNetV2 uint8 quantized (MIT weights, ONNX port):
+		// whole-image Drawing/Hentai/Neutral/Porn/Sexy — the suggestive/anime
+		// signal NudeNet lacks. Input [1,224,224,3] float32 RGB 0..1 NHWC.
+		url: "https://huggingface.co/L4Ph/nsfwts/resolve/main/nsfwjs_uint8.onnx",
+		fileName: "nsfwjs-u8.onnx",
+		sha256: "4a50ddc6126cff479c22975a39703e685088c47c0cdf7237f8e87327d5e8804e",
+		size: 2_792_212,
+	},
 ];
 
 async function sha256OfFile(path: string): Promise<string> {

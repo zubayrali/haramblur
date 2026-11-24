@@ -99,21 +99,30 @@ export function tileRects(
  * score (e.g. a face seen in two adjacent tiles). Returns score-descending.
  */
 export function mergeDetections(...lists: readonly Detection[][]): Detection[] {
+	// Non-NudeNet labels (NSFW full-frame) bypass per-class NMS — they can't
+	// collide with localized boxes; dedupe by label keeping the best score.
+	const nudenetLabels: readonly string[] = NUDENET_LABELS;
+	const other = new Map<string, Detection>();
 	const candidates = lists.flat().flatMap((d) => {
-		const cls = NUDENET_LABELS.indexOf(d.label);
-		if (cls < 0) return [];
+		if (!nudenetLabels.includes(d.label)) {
+			const prev = other.get(d.label);
+			if (prev == null || d.score > prev.score) other.set(d.label, d);
+			return [];
+		}
+		const cls = nudenetLabels.indexOf(d.label);
 		const [x, y, w, h] = d.box;
 		return [{ cls, score: d.score, x0: x, y0: y, x1: x + w, y1: y + h }];
 	});
-	return nmsPerClass(candidates, NMS_IOU)
-		.map(
+	return [
+		...nmsPerClass(candidates, NMS_IOU).map(
 			(c): Detection => ({
 				label: NUDENET_LABELS[c.cls]!,
 				score: c.score,
 				box: [c.x0, c.y0, c.x1 - c.x0, c.y1 - c.y0],
 			}),
-		)
-		.sort((a, b) => b.score - a.score);
+		),
+		...other.values(),
+	].sort((a, b) => b.score - a.score);
 }
 
 /**

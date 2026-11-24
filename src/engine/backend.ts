@@ -16,6 +16,8 @@ export interface SessionOptions {
 	faceModelUrl?: string;
 	/** Absolute extension URL of `models/yunet-2023mar.onnx` (optional). */
 	yunetModelUrl?: string;
+	/** Absolute extension URL of `models/nsfwjs-u8.onnx` (optional). */
+	nsfwModelUrl?: string;
 }
 
 export interface EngineSession {
@@ -32,6 +34,12 @@ export interface EngineSession {
 	 * a second WebGPU session would double the wedged-EP surface.
 	 */
 	yunetSession: ort.InferenceSession | null;
+	/**
+	 * nsfwjs MobileNetV2 whole-image classifier session, always WASM: ~2.8 MB
+	 * model at 224² — a second WebGPU session would double the wedged-EP
+	 * surface for no measurable gain.
+	 */
+	nsfwSession: ort.InferenceSession | null;
 }
 
 // Extension pages report `crossOriginIsolated === true`, so the threaded WASM
@@ -103,6 +111,7 @@ export async function createSession({
 	modelUrl,
 	faceModelUrl,
 	yunetModelUrl,
+	nsfwModelUrl,
 }: SessionOptions): Promise<EngineSession> {
 	// Absolute extension URL — a relative path would resolve against the ort
 	// module's own directory and 404 (docs/ENGINE_NOTES.md).
@@ -160,5 +169,15 @@ export async function createSession({
 			console.warn("[haramblur] face detector model unavailable:", err);
 		}
 	}
-	return { backend, session, faceSession, yunetSession };
+	let nsfwSession: ort.InferenceSession | null = null;
+	if (nsfwModelUrl != null) {
+		try {
+			nsfwSession = await ort.InferenceSession.create(nsfwModelUrl, {
+				executionProviders: ["wasm"],
+			});
+		} catch (err) {
+			console.warn("[haramblur] nsfw classifier model unavailable:", err);
+		}
+	}
+	return { backend, session, faceSession, yunetSession, nsfwSession };
 }
