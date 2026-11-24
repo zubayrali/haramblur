@@ -299,5 +299,50 @@
 	},
 	"censorStylePattern": {
 		"message": "Geometric pattern"
+	},
+	"models": {
+		"message": "Models"
+	},
+	"modelsHint": {
+		"message": "Import your own ONNX weights to override a bundled model. Weights stay on this device."
+	},
+	"modelBundled": {
+		"message": "Bundled"
+	},
+	"modelImport": {
+		"message": "Import"
+	},
+	"modelReplace": {
+		"message": "Replace"
+	},
+	"modelRemove": {
+		"message": "Remove"
+	},
+	"modelsReloadNote": {
+		"message": "Overrides apply the next time the engine starts (usually on browser restart)."
+	},
+	"modelNudenet": {
+		"message": "NudeNet detector"
+	},
+	"modelNudenetContract": {
+		"message": "NudeNet detector export — same labels and anchor format as 320n."
+	},
+	"modelFastface": {
+		"message": "FastFace gender"
+	},
+	"modelFastfaceContract": {
+		"message": "Face gender classifier — aligned 112×112 face crops."
+	},
+	"modelYunet": {
+		"message": "YuNet face detector"
+	},
+	"modelYunetContract": {
+		"message": "YuNet face detector export — same 5-landmark output format."
+	},
+	"modelNsfw": {
+		"message": "NSFW classifier"
+	},
+	"modelNsfwContract": {
+		"message": "nsfwjs MobileNetV2 whole-image classifier — 224×224 input."
 	}
 }

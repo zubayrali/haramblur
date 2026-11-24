@@ -23,6 +23,7 @@ import {
 	genderProbs,
 	refineFaceDetections,
 } from "./fastface";
+import { loadOverrides } from "./model-store";
 import { NSFW_INPUT_SIZE, nsfwDetection, nsfwVerdict, softmax } from "./nsfw";
 import {
 	INPUT_SIZE,
@@ -461,13 +462,19 @@ async function infer(
 scope.onmessage = (event) => {
 	const msg = event.data;
 	if (msg.type === "init") {
-		createSession({
-			wasmBase: msg.wasmBase,
-			modelUrl: msg.modelUrl,
-			faceModelUrl: msg.faceModelUrl,
-			yunetModelUrl: msg.yunetModelUrl,
-			nsfwModelUrl: msg.nsfwModelUrl,
-		})
+		// OPFS model overrides (Options → Models) win over bundled URLs.
+		loadOverrides()
+			.catch(() => ({}))
+			.then((modelOverrides) =>
+				createSession({
+					wasmBase: msg.wasmBase,
+					modelUrl: msg.modelUrl,
+					faceModelUrl: msg.faceModelUrl,
+					yunetModelUrl: msg.yunetModelUrl,
+					nsfwModelUrl: msg.nsfwModelUrl,
+					modelOverrides,
+				}),
+			)
 			.then(({ backend, session: s, faceSession: fs, yunetSession: ys, nsfwSession: ns }) => {
 				session = s;
 				faceSession = fs;

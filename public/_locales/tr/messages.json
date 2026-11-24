@@ -299,5 +299,50 @@
 	},
 	"censorStylePattern": {
 		"message": "Geometrik desen"
+	},
+	"models": {
+		"message": "Modeller"
+	},
+	"modelsHint": {
+		"message": "Yerleşik modeli geçersiz kılmak için kendi ONNX ağırlıklarınızı içe aktarın. Ağırlıklar bu cihazda kalır."
+	},
+	"modelBundled": {
+		"message": "Yerleşik"
+	},
+	"modelImport": {
+		"message": "İçe Aktar"
+	},
+	"modelReplace": {
+		"message": "Değiştir"
+	},
+	"modelRemove": {
+		"message": "Kaldır"
+	},
+	"modelsReloadNote": {
+		"message": "Geçersiz kılmalar, motor bir sonraki başladığında uygulanır (genellikle tarayıcı yeniden başlatıldığında)."
+	},
+	"modelNudenet": {
+		"message": "NudeNet dedektörü"
+	},
+	"modelNudenetContract": {
+		"message": "NudeNet dedektör dışa aktarımı — 320n ile aynı etiket ve çapa biçimi."
+	},
+	"modelFastface": {
+		"message": "FastFace cinsiyet"
+	},
+	"modelFastfaceContract": {
+		"message": "Yüz cinsiyet sınıflandırıcısı — hizalanmış 112×112 yüz kırpıntıları."
+	},
+	"modelYunet": {
+		"message": "YuNet yüz dedektörü"
+	},
+	"modelYunetContract": {
+		"message": "YuNet dedektör dışa aktarımı — aynı 5-işaretçi çıktı biçimi."
+	},
+	"modelNsfw": {
+		"message": "NSFW sınıflandırıcı"
+	},
+	"modelNsfwContract": {
+		"message": "nsfwjs MobileNetV2 tüm-görüntü sınıflandırıcısı — 224×224 girdi."
 	}
 }
