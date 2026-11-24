@@ -203,7 +203,11 @@ async function forwardMediaAction(
 }
 
 export default defineBackground({
-	persistent: false,
+	// Firefox runs the engine host inside the background page itself; keeping
+	// the page persistent keeps the loaded model resident (an event page would
+	// unload it between messages, forcing a cold boot per request burst).
+	// MV3 ignores the flag — service workers are never persistent.
+	persistent: { firefox: true },
 	main() {
 		const engine = browser.offscreen == null ? firefoxClient() : chromeClient();
 

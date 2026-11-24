@@ -1,0 +1,50 @@
+name: Release
+
+# Manual release packaging: builds both browsers, produces store zips, and
+# uploads them (plus the sources zip) as workflow artifacts.
+on:
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Same pinned-model cache as CI — keyed by the SHA-256 in
+      # scripts/fetch-models.ts.
+      - uses: actions/cache@v4
+        with:
+          path: public/models
+          key: models-320n-c15d8273adad2d0a92f014cc69ab2d6c311a06777a55545f2c4eb46f51911f0f
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm models:fetch
+      - run: pnpm check
+
+      - run: pnpm build
+      - run: pnpm build:firefox
+      - run: pnpm zip
+      - run: pnpm zip:firefox
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: haramblur-${{ github.run_id }}-chrome.zip
+          path: .output/haramblur-*-chrome.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: haramblur-${{ github.run_id }}-firefox.zip
+          path: .output/haramblur-*-firefox.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: haramblur-${{ github.run_id }}-sources.zip
+          path: .output/haramblur-*-sources.zip
