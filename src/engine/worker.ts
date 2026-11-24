@@ -51,6 +51,15 @@ let session: ort.InferenceSession | null = null;
 const canvas = new OffscreenCanvas(INPUT_SIZE, INPUT_SIZE);
 const ctx = canvas.getContext("2d");
 
+/**
+ * Inference runs are serialized: onnxruntime-web does not guarantee
+ * concurrent `session.run` safety on one session, and the WebGPU EP wedges
+ * under parallel calls (observed: adapter + session fine, runs hang — the
+ * engine reports ready while every request stalls). Queue fetch/decode
+ * still overlaps in the host; only the GPU/WASM call itself is serialized.
+ */
+let inferChain: Promise<void> = Promise.resolve();
+
 const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 function letterboxDraw(bitmap: ImageBitmap): { rgba: Uint8ClampedArray; k: number } {
@@ -143,6 +152,11 @@ scope.onmessage = (event) => {
 			})
 			.catch((err) => scope.postMessage({ type: "initError", error: errMsg(err) }));
 	} else if (msg.type === "infer") {
-		void infer(msg.id, msg.bitmap, msg.detail === true);
+		inferChain = inferChain
+			.then(() => infer(msg.id, msg.bitmap, msg.detail === true))
+			.catch(() => {
+				// infer() reports failures via inferError; keep the chain alive
+				// so one bad request can't stall every later inference.
+			});
 	}
 };

@@ -5,6 +5,7 @@
  */
 import * as ort from "onnxruntime-web";
 import type { EngineBackend } from "../shared/protocol";
+import { INPUT_SIZE } from "./nudenet";
 
 export interface SessionOptions {
 	/** Absolute extension URL of the shipped ORT WASM assets (`/ort/`). */
@@ -24,6 +25,42 @@ export interface EngineSession {
 // wasm glue and kills every inference. Single-threaded inference is ~110 ms
 // here, so threads stay off regardless of what the context reports.
 const WASM_THREADS = 1;
+
+/**
+ * Boot-time WebGPU probe budget. Some Chromium forks (observed: Helium)
+ * vend a GPU adapter and create a session fine, then hang forever inside
+ * `session.run` — the session reports ready while every inference stalls
+ * until the host's 30 s timeout. One throwaway inference proves the EP
+ * actually executes; slower-than-this means wedged, not merely slow.
+ */
+const WEBGPU_PROBE_TIMEOUT_MS = 5_000;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Run one inference on a zero tensor; resolves false on error or timeout. */
+async function probeSession(session: ort.InferenceSession): Promise<boolean> {
+	const inputName = session.inputNames[0];
+	if (inputName == null) return false;
+	const probe = new ort.Tensor("float32", new Float32Array(3 * INPUT_SIZE * INPUT_SIZE), [
+		1,
+		3,
+		INPUT_SIZE,
+		INPUT_SIZE,
+	]);
+	try {
+		const outputs = await Promise.race([
+			session.run({ [inputName]: probe }),
+			sleep(WEBGPU_PROBE_TIMEOUT_MS).then(() => null),
+		]);
+		if (outputs == null) return false;
+		for (const tensor of Object.values(outputs)) tensor.dispose();
+		return true;
+	} catch {
+		return false;
+	} finally {
+		probe.dispose();
+	}
+}
 
 /** Minimal WebGPU surface — the TS DOM lib in use lacks GPU typings. */
 interface GpuLike {
@@ -61,7 +98,11 @@ export async function createSession({
 			const session = await ort.InferenceSession.create(modelUrl, {
 				executionProviders: ["webgpu"],
 			});
-			return { backend: "webgpu", session };
+			if (await probeSession(session)) {
+				return { backend: "webgpu", session };
+			}
+			console.warn("[haramblur] WebGPU probe failed, falling back to WASM");
+			await session.release();
 		} catch (err) {
 			console.warn("[haramblur] WebGPU session failed, falling back to WASM:", err);
 		}
