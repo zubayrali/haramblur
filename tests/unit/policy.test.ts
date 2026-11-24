@@ -118,6 +118,20 @@ describe("decide", () => {
 		expect(decide([det("FACE_FEMALE", 0.3)], strict)).toBe("blur");
 	});
 
+	it("skipChildren suppresses child face detections only", () => {
+		const child = { ...det("FACE_FEMALE", 0.9), age: 10 };
+		const adult = { ...det("FACE_FEMALE", 0.9), age: 30 };
+		expect(decide([child], base)).toBe("clear");
+		expect(decide([child], { ...base, skipChildren: false })).toBe("blur");
+		expect(decide([adult], base)).toBe("blur");
+		// A child face never suppresses explicit nudity on its own detection,
+		// and non-face labels ignore age entirely.
+		expect(decide([{ ...det("FEMALE_BREAST_EXPOSED", 0.6), age: 10 }], base)).toBe("blur");
+		expect(decide([{ ...det("FACE_MALE", 0.9), age: 10 }], { ...base, blurMale: true })).toBe(
+			"clear",
+		);
+	});
+
 	it("clamps strictness outside 0..1", () => {
 		expect(faceThreshold(-1)).toBeCloseTo(0.6);
 		expect(faceThreshold(2)).toBeCloseTo(0.2);

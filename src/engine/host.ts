@@ -40,6 +40,8 @@ export interface EngineHostOptions {
 	modelUrl: string;
 	/** Absolute extension URL of `models/fastface-small-112.onnx` (optional). */
 	faceModelUrl?: string;
+	/** Absolute extension URL of `models/yunet-2023mar.onnx` (optional). */
+	yunetModelUrl?: string;
 	/** Absolute extension URL of the shipped ORT WASM assets (`/ort/`). */
 	wasmBase: string;
 	spawnWorker?: () => WorkerHandle;
@@ -127,6 +129,7 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 			wasmBase: opts.wasmBase,
 			modelUrl: opts.modelUrl,
 			faceModelUrl: opts.faceModelUrl,
+			yunetModelUrl: opts.yunetModelUrl,
 		});
 	}
 

@@ -8,10 +8,14 @@ import * as ort from "onnxruntime-web";
 import type { Detection, EngineBackend } from "../shared/protocol";
 import { createSession } from "./backend";
 import {
+	boxIou,
+	FACE_CLUSTER_IOU,
 	FACE_INPUT_SIZE,
+	FACE_LABELS,
 	FACE_MIN_PX,
 	type FaceClassifier,
 	type FaceGender,
+	faceAlignTransform,
 	faceCropRect,
 	faceRgbaToTensor,
 	genderProbs,
@@ -25,6 +29,15 @@ import {
 	rgbaToTensor,
 	tileRects,
 } from "./nudenet";
+import {
+	decodeYuNet,
+	landmarksPlausible,
+	letterboxRect,
+	unletterboxBox,
+	unletterboxPoint,
+	YUNET_INPUT_SIZE,
+	type YuNetOutputs,
+} from "./yunet";
 
 export interface WorkerInitMessage {
 	type: "init";
@@ -32,6 +45,8 @@ export interface WorkerInitMessage {
 	modelUrl: string;
 	/** Optional FastFace gender model; absent → FACE_* labels stay NudeNet's. */
 	faceModelUrl?: string;
+	/** Optional YuNet face detector; absent → no dedicated face pass. */
+	yunetModelUrl?: string;
 }
 
 export interface WorkerInferMessage {
@@ -61,10 +76,17 @@ const scope = self as unknown as {
 
 let session: ort.InferenceSession | null = null;
 let faceSession: ort.InferenceSession | null = null;
+let yunetSession: ort.InferenceSession | null = null;
 const canvas = new OffscreenCanvas(INPUT_SIZE, INPUT_SIZE);
 const ctx = canvas.getContext("2d");
 const faceCanvas = new OffscreenCanvas(FACE_INPUT_SIZE, FACE_INPUT_SIZE);
 const faceCtx = faceCanvas.getContext("2d", { willReadFrequently: true });
+const yunetCanvas = new OffscreenCanvas(YUNET_INPUT_SIZE, YUNET_INPUT_SIZE);
+const yunetCtx = yunetCanvas.getContext("2d", { willReadFrequently: true });
+/** YuNet faces per inference pass — group photos can have many. */
+const YUNET_MAX_PER_PASS = 12;
+/** FastFace must be this confident to emit a YuNet synthetic detection. */
+const YUNET_GENDER_MIN_CONF = 0.85;
 
 /**
  * Inference runs are serialized: onnxruntime-web does not guarantee
@@ -132,24 +154,36 @@ async function runTensor(rgba: Uint8ClampedArray): Promise<{
  * label in that case.
  */
 function makeFaceClassifier(bitmap: ImageBitmap): FaceClassifier {
-	return async (box): Promise<FaceGender | null> => {
+	return async (box, landmarks): Promise<FaceGender | null> => {
 		if (faceSession == null || faceCtx == null) return null;
-		const rect = faceCropRect(box, bitmap.width, bitmap.height);
-		if (rect == null || rect.w < FACE_MIN_PX || rect.h < FACE_MIN_PX) return null;
 		faceCtx.clearRect(0, 0, FACE_INPUT_SIZE, FACE_INPUT_SIZE);
 		faceCtx.imageSmoothingEnabled = true;
 		faceCtx.imageSmoothingQuality = "high";
-		faceCtx.drawImage(
-			bitmap,
-			rect.x,
-			rect.y,
-			rect.w,
-			rect.h,
-			0,
-			0,
-			FACE_INPUT_SIZE,
-			FACE_INPUT_SIZE,
-		);
+		const aligned =
+			landmarks != null && landmarks.length >= 2
+				? faceAlignTransform(landmarks, bitmap.width, bitmap.height)
+				: null;
+		if (aligned != null) {
+			// Eye-aligned similarity transform over the whole bitmap; only the
+			// face region lands inside the 112² viewport.
+			faceCtx.setTransform(aligned.a, aligned.b, aligned.c, aligned.d, aligned.e, aligned.f);
+			faceCtx.drawImage(bitmap, 0, 0);
+			faceCtx.setTransform(1, 0, 0, 1, 0, 0);
+		} else {
+			const rect = faceCropRect(box, bitmap.width, bitmap.height);
+			if (rect == null || rect.w < FACE_MIN_PX || rect.h < FACE_MIN_PX) return null;
+			faceCtx.drawImage(
+				bitmap,
+				rect.x,
+				rect.y,
+				rect.w,
+				rect.h,
+				0,
+				0,
+				FACE_INPUT_SIZE,
+				FACE_INPUT_SIZE,
+			);
+		}
 		const { data } = faceCtx.getImageData(0, 0, FACE_INPUT_SIZE, FACE_INPUT_SIZE);
 		const inputName = faceSession.inputNames[0];
 		if (inputName == null) return null;
@@ -172,7 +206,7 @@ function makeFaceClassifier(bitmap: ImageBitmap): FaceClassifier {
 			return {
 				femaleProb: female,
 				maleProb: male,
-				age: ageOut?.[0] ?? 0,
+				age: ageOut?.[0],
 			};
 		} finally {
 			tensor.dispose();
@@ -181,6 +215,83 @@ function makeFaceClassifier(bitmap: ImageBitmap): FaceClassifier {
 			}
 		}
 	};
+}
+
+interface YuNetFaceNorm {
+	box: [number, number, number, number];
+	landmarks: [number, number][];
+	score: number;
+}
+
+/**
+ * Letterbox the bitmap into the 640² YuNet canvas (aspect preserved, black
+ * pad — matching OpenCV's BORDER_CONSTANT), convert RGBA→BGR float32 NCHW
+ * (raw 0..255, no normalization), run the session, and decode to
+ * source-normalized boxes + landmarks. Returns [] when the session is
+ * absent. Tensors are disposed before returning.
+ */
+async function detectYuNetFaces(bitmap: ImageBitmap): Promise<YuNetFaceNorm[]> {
+	if (yunetSession == null || yunetCtx == null) return [];
+	const lb = letterboxRect(bitmap.width, bitmap.height);
+	yunetCtx.fillStyle = "#000";
+	yunetCtx.fillRect(0, 0, YUNET_INPUT_SIZE, YUNET_INPUT_SIZE);
+	yunetCtx.drawImage(bitmap, lb.ox, lb.oy, lb.cw, lb.ch);
+	const { data: rgba } = yunetCtx.getImageData(0, 0, YUNET_INPUT_SIZE, YUNET_INPUT_SIZE);
+	const plane = YUNET_INPUT_SIZE * YUNET_INPUT_SIZE;
+	const tensorData = new Float32Array(3 * plane);
+	for (let i = 0; i < plane; i++) {
+		const s = i * 4;
+		// BGR order, raw 0..255 — YuNet's blobFromImage uses no normalization.
+		tensorData[i] = rgba[s + 2]!;
+		tensorData[plane + i] = rgba[s + 1]!;
+		tensorData[2 * plane + i] = rgba[s]!;
+	}
+	const inputName = yunetSession.inputNames[0];
+	if (inputName == null) return [];
+	const input = new ort.Tensor("float32", tensorData, [1, 3, YUNET_INPUT_SIZE, YUNET_INPUT_SIZE]);
+	let outputs: Record<string, ort.Tensor> | undefined;
+	try {
+		outputs = await yunetSession.run({ [inputName]: input });
+		const get = (name: string) => outputs?.[name]?.data as Float32Array | undefined;
+		const decoded = decodeYuNet({
+			cls_8: get("cls_8") ?? new Float32Array(0),
+			cls_16: get("cls_16") ?? new Float32Array(0),
+			cls_32: get("cls_32") ?? new Float32Array(0),
+			obj_8: get("obj_8") ?? new Float32Array(0),
+			obj_16: get("obj_16") ?? new Float32Array(0),
+			obj_32: get("obj_32") ?? new Float32Array(0),
+			bbox_8: get("bbox_8") ?? new Float32Array(0),
+			bbox_16: get("bbox_16") ?? new Float32Array(0),
+			bbox_32: get("bbox_32") ?? new Float32Array(0),
+			kps_8: get("kps_8") ?? new Float32Array(0),
+			kps_16: get("kps_16") ?? new Float32Array(0),
+			kps_32: get("kps_32") ?? new Float32Array(0),
+		});
+		return decoded
+			.filter(landmarksPlausible)
+			.map((f) => {
+				const b = unletterboxBox(f.box, lb, bitmap.width, bitmap.height);
+				return {
+					box: [b.x, b.y, b.w, b.h] as [number, number, number, number],
+					landmarks: f.landmarks.map((p) => unletterboxPoint(p, lb, bitmap.width, bitmap.height)),
+					score: f.score,
+				};
+			})
+			.filter(
+				(f) =>
+					f.box[0] + f.box[2] > 0 &&
+					f.box[1] + f.box[3] > 0 &&
+					f.box[0] < 1 &&
+					f.box[1] < 1 &&
+					f.box[2] > 0 &&
+					f.box[3] > 0,
+			);
+	} finally {
+		input.dispose();
+		if (outputs != null) {
+			for (const t of Object.values(outputs)) t.dispose();
+		}
+	}
 }
 
 async function infer(id: number, bitmap: ImageBitmap, detail: boolean): Promise<void> {
@@ -215,13 +326,41 @@ async function infer(id: number, bitmap: ImageBitmap, detail: boolean): Promise<
 			const { data, rows, cols } = await runTensor(rgba);
 			detections.push(...parseDetections(data, rows, cols, k, bitmap.width, bitmap.height));
 		}
-		if (faceSession != null) {
-			detections = await refineFaceDetections(
-				detections,
-				makeFaceClassifier(bitmap),
-				bitmap.width,
-				bitmap.height,
-			);
+		const classifier = faceSession != null ? makeFaceClassifier(bitmap) : null;
+		// YuNet face pass (whole-image only): detect → genderize with
+		// landmark-aligned FastFace → suppress NudeNet FACE_* labels covered by
+		// CONFIDENT synthetics → refine leftover NudeNet faces → append
+		// synthetics. Requires BOTH sessions — without FastFace there is no
+		// gender signal for YuNet boxes.
+		let yunetFaces: YuNetFaceNorm[] = [];
+		if (!detail && yunetSession != null && classifier != null) {
+			yunetFaces = await detectYuNetFaces(bitmap);
+		}
+		if (classifier != null) {
+			const synthetics: Detection[] = [];
+			for (const f of yunetFaces.slice(0, YUNET_MAX_PER_PASS)) {
+				const g = await classifier(f.box, f.landmarks).catch(() => null);
+				if (g == null) continue;
+				const conf = Math.max(g.femaleProb, g.maleProb);
+				// Abstain on unsure gender — a misgendered synthetic is worse
+				// than no detection (dogs, car grilles, ambiguous faces).
+				if (conf < YUNET_GENDER_MIN_CONF) continue;
+				synthetics.push({
+					label: g.femaleProb >= g.maleProb ? "FACE_FEMALE" : "FACE_MALE",
+					score: f.score * conf,
+					box: f.box,
+					...(g.age != null ? { age: g.age } : {}),
+				});
+			}
+			if (synthetics.length > 0) {
+				detections = detections.filter(
+					(d) =>
+						!FACE_LABELS.has(d.label) ||
+						!synthetics.some((s) => boxIou(s.box, d.box) > FACE_CLUSTER_IOU),
+				);
+			}
+			detections = await refineFaceDetections(detections, classifier, bitmap.width, bitmap.height);
+			detections.push(...synthetics);
 		}
 		detections.sort((a, b) => b.score - a.score);
 		scope.postMessage({ type: "result", id, detections, ms: performance.now() - t0 });
@@ -239,10 +378,12 @@ scope.onmessage = (event) => {
 			wasmBase: msg.wasmBase,
 			modelUrl: msg.modelUrl,
 			faceModelUrl: msg.faceModelUrl,
+			yunetModelUrl: msg.yunetModelUrl,
 		})
-			.then(({ backend, session: s, faceSession: fs }) => {
+			.then(({ backend, session: s, faceSession: fs, yunetSession: ys }) => {
 				session = s;
 				faceSession = fs;
+				yunetSession = ys;
 				scope.postMessage({ type: "ready", backend });
 			})
 			.catch((err) => scope.postMessage({ type: "initError", error: errMsg(err) }));

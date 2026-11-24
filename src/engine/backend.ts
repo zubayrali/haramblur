@@ -14,6 +14,8 @@ export interface SessionOptions {
 	modelUrl: string;
 	/** Absolute extension URL of `models/fastface-small-112.onnx` (optional). */
 	faceModelUrl?: string;
+	/** Absolute extension URL of `models/yunet-2023mar.onnx` (optional). */
+	yunetModelUrl?: string;
 }
 
 export interface EngineSession {
@@ -25,6 +27,11 @@ export interface EngineSession {
 	 * surface for no measurable gain.
 	 */
 	faceSession: ort.InferenceSession | null;
+	/**
+	 * YuNet face detector session, always WASM: ~232 KB model, single pass —
+	 * a second WebGPU session would double the wedged-EP surface.
+	 */
+	yunetSession: ort.InferenceSession | null;
 }
 
 // Extension pages report `crossOriginIsolated === true`, so the threaded WASM
@@ -95,6 +102,7 @@ export async function createSession({
 	wasmBase,
 	modelUrl,
 	faceModelUrl,
+	yunetModelUrl,
 }: SessionOptions): Promise<EngineSession> {
 	// Absolute extension URL — a relative path would resolve against the ort
 	// module's own directory and 404 (docs/ENGINE_NOTES.md).
@@ -142,5 +150,15 @@ export async function createSession({
 			console.warn("[haramblur] face gender model unavailable:", err);
 		}
 	}
-	return { backend, session, faceSession };
+	let yunetSession: ort.InferenceSession | null = null;
+	if (yunetModelUrl != null) {
+		try {
+			yunetSession = await ort.InferenceSession.create(yunetModelUrl, {
+				executionProviders: ["wasm"],
+			});
+		} catch (err) {
+			console.warn("[haramblur] face detector model unavailable:", err);
+		}
+	}
+	return { backend, session, faceSession, yunetSession };
 }

@@ -7,6 +7,8 @@ export interface Detection {
 	label: NudeNetLabel;
 	score: number;
 	box: [x: number, y: number, w: number, h: number];
+	/** Estimated age in years when a face classifier provided one. */
+	age?: number;
 }
 
 export type VerdictDecision = "blur" | "clear";

@@ -30,23 +30,27 @@ export const FACE_MAX_PER_PASS = 8;
 export const FACE_RELABEL_MIN_CONF = 0.7;
 /** Face boxes (either gender label) overlapping above this IoU are the
  * same face — NudeNet sometimes emits both labels on one box. */
-const FACE_CLUSTER_IOU = 0.3;
+export const FACE_CLUSTER_IOU = 0.3;
 
-const FACE_LABELS = new Set<Detection["label"]>(["FACE_FEMALE", "FACE_MALE"]);
+export const FACE_LABELS = new Set<Detection["label"]>(["FACE_FEMALE", "FACE_MALE"]);
 
 export interface FaceGender {
 	femaleProb: number;
 	maleProb: number;
-	age: number;
+	/** Estimated age; absent when the model's age output is unavailable. */
+	age?: number;
 }
 
 /**
  * Classify one face. `box` is the normalized `[x, y, w, h]` detection box;
- * implementations crop from the source bitmap, run the model, and return
- * probabilities — or `null` when the crop is unusable.
+ * `landmarks` (optional, normalized) are the detector's 5-point landmarks —
+ * when present the crop is eye-aligned instead of axis-aligned. Implementations
+ * crop from the source bitmap, run the model, and return probabilities — or
+ * `null` when the crop is unusable.
  */
 export type FaceClassifier = (
 	box: readonly [number, number, number, number],
+	landmarks?: readonly (readonly [number, number])[],
 ) => Promise<FaceGender | null>;
 
 const toEdges = (box: readonly [number, number, number, number]) => ({
@@ -56,7 +60,7 @@ const toEdges = (box: readonly [number, number, number, number]) => ({
 	y1: box[1] + box[3],
 });
 
-function boxIou(
+export function boxIou(
 	a: readonly [number, number, number, number],
 	b: readonly [number, number, number, number],
 ): number {
@@ -155,7 +159,10 @@ export async function refineFaceDetections(
 		const label: Detection["label"] =
 			gender.femaleProb >= gender.maleProb ? "FACE_FEMALE" : "FACE_MALE";
 		for (const m of cluster.members) {
-			replacements.set(m, m === rep ? { label, score: rep.score, box: rep.box } : null);
+			replacements.set(
+				m,
+				m === rep ? { label, score: rep.score, box: rep.box, age: gender.age } : null,
+			);
 		}
 	}
 
@@ -164,6 +171,43 @@ export async function refineFaceDetections(
 		const r = replacements.get(d);
 		return r == null ? [] : [r];
 	});
+}
+
+/**
+ * Similarity transform that eye-aligns a detected face into an
+ * `outSize`² canvas: rotates the eye-line horizontal, centers the eye
+ * midpoint at (50%, 35%), and scales so the inter-eye distance is ~32% of
+ * the crop. `landmarks` are normalized source coords in detector order
+ * (right_eye, left_eye, nose, mouth_r, mouth_l) — only the two eyes are
+ * used. Returns canvas `setTransform` params, or null when degenerate.
+ */
+export function faceAlignTransform(
+	landmarks: readonly (readonly [number, number])[],
+	srcW: number,
+	srcH: number,
+	outSize: number = FACE_INPUT_SIZE,
+): { a: number; b: number; c: number; d: number; e: number; f: number } | null {
+	const re = landmarks[0];
+	const le = landmarks[1];
+	if (re == null || le == null) return null;
+	const ex = ((re[0] + le[0]) / 2) * srcW;
+	const ey = ((re[1] + le[1]) / 2) * srcH;
+	const dx = (le[0] - re[0]) * srcW;
+	const dy = (le[1] - re[1]) * srcH;
+	const eyeDist = Math.hypot(dx, dy);
+	if (eyeDist < 2) return null;
+	const theta = Math.atan2(dy, dx);
+	const cos = Math.cos(theta);
+	const sin = Math.sin(theta);
+	const k = Math.min(8, Math.max(0.25, (0.32 * outSize) / eyeDist));
+	// p' = k·R(-θ)·(p - E) + T, T = (S/2, 0.35·S)
+	const a = k * cos;
+	const c = k * sin;
+	const b = -k * sin;
+	const d = k * cos;
+	const tx = outSize / 2;
+	const ty = 0.35 * outSize;
+	return { a, b, c, d, e: tx - (a * ex + c * ey), f: ty - (b * ex + d * ey) };
 }
 
 const IMAGENET_MEAN = [0.485, 0.456, 0.406] as const;
