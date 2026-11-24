@@ -36,6 +36,8 @@ export interface WorkerHandle {
 export interface EngineHostOptions {
 	/** Absolute extension URL of `models/320n.onnx`. */
 	modelUrl: string;
+	/** Absolute extension URL of `models/fastface-small-112.onnx` (optional). */
+	faceModelUrl?: string;
 	/** Absolute extension URL of the shipped ORT WASM assets (`/ort/`). */
 	wasmBase: string;
 	spawnWorker?: () => WorkerHandle;
@@ -116,7 +118,12 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 			() => crash(`engine init timed out after ${bootTimeoutMs}ms`),
 			bootTimeoutMs,
 		);
-		worker.postMessage({ type: "init", wasmBase: opts.wasmBase, modelUrl: opts.modelUrl });
+		worker.postMessage({
+			type: "init",
+			wasmBase: opts.wasmBase,
+			modelUrl: opts.modelUrl,
+			faceModelUrl: opts.faceModelUrl,
+		});
 	}
 
 	function crash(error: string): void {

@@ -27,6 +27,14 @@ const MODELS: readonly ModelFile[] = [
 		sha256: "c15d8273adad2d0a92f014cc69ab2d6c311a06777a55545f2c4eb46f51911f0f",
 		size: 12_150_158,
 	},
+	{
+		// FastFace small112 (Apache-2.0): MobileNetV3 gender+age on aligned
+		// face crops. Re-labels NudeNet's weak FACE_* gender guesses.
+		url: "https://huggingface.co/iFurySt/fastface/resolve/main/models/fastface-small-112/model_fp32.onnx",
+		fileName: "fastface-small-112.onnx",
+		sha256: "0c3981b6c6bc67f32eca6d2d7be70dd3d11aa636c6506b79234adf4bb52d0af5",
+		size: 5_114_478,
+	},
 ];
 
 async function sha256OfFile(path: string): Promise<string> {

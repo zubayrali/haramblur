@@ -8,6 +8,16 @@ import * as ort from "onnxruntime-web";
 import type { Detection, EngineBackend } from "../shared/protocol";
 import { createSession } from "./backend";
 import {
+	FACE_INPUT_SIZE,
+	FACE_MIN_PX,
+	type FaceClassifier,
+	type FaceGender,
+	faceCropRect,
+	faceRgbaToTensor,
+	genderProbs,
+	refineFaceDetections,
+} from "./fastface";
+import {
 	INPUT_SIZE,
 	LETTERBOX_FILL,
 	letterboxSize,
@@ -20,6 +30,8 @@ export interface WorkerInitMessage {
 	type: "init";
 	wasmBase: string;
 	modelUrl: string;
+	/** Optional FastFace gender model; absent → FACE_* labels stay NudeNet's. */
+	faceModelUrl?: string;
 }
 
 export interface WorkerInferMessage {
@@ -48,8 +60,11 @@ const scope = self as unknown as {
 };
 
 let session: ort.InferenceSession | null = null;
+let faceSession: ort.InferenceSession | null = null;
 const canvas = new OffscreenCanvas(INPUT_SIZE, INPUT_SIZE);
 const ctx = canvas.getContext("2d");
+const faceCanvas = new OffscreenCanvas(FACE_INPUT_SIZE, FACE_INPUT_SIZE);
+const faceCtx = faceCanvas.getContext("2d", { willReadFrequently: true });
 
 /**
  * Inference runs are serialized: onnxruntime-web does not guarantee
@@ -101,6 +116,60 @@ async function runTensor(rgba: Uint8ClampedArray): Promise<{
 	return { data: output.data as Float32Array, rows, cols };
 }
 
+/**
+ * Crop one normalized face box out of the bitmap, run FastFace, and return
+ * gender probabilities. Returns null when the session is missing, the crop
+ * is degenerate, or the model output is malformed — callers keep NudeNet's
+ * label in that case.
+ */
+function makeFaceClassifier(bitmap: ImageBitmap): FaceClassifier {
+	return async (box): Promise<FaceGender | null> => {
+		if (faceSession == null || faceCtx == null) return null;
+		const rect = faceCropRect(box, bitmap.width, bitmap.height);
+		if (rect == null || rect.w < FACE_MIN_PX || rect.h < FACE_MIN_PX) return null;
+		faceCtx.clearRect(0, 0, FACE_INPUT_SIZE, FACE_INPUT_SIZE);
+		faceCtx.imageSmoothingEnabled = true;
+		faceCtx.imageSmoothingQuality = "high";
+		faceCtx.drawImage(
+			bitmap,
+			rect.x,
+			rect.y,
+			rect.w,
+			rect.h,
+			0,
+			0,
+			FACE_INPUT_SIZE,
+			FACE_INPUT_SIZE,
+		);
+		const { data } = faceCtx.getImageData(0, 0, FACE_INPUT_SIZE, FACE_INPUT_SIZE);
+		const inputName = faceSession.inputNames[0];
+		if (inputName == null) return null;
+		const tensor = new ort.Tensor("float32", faceRgbaToTensor(data), [
+			1,
+			3,
+			FACE_INPUT_SIZE,
+			FACE_INPUT_SIZE,
+		]);
+		try {
+			const outputs = await faceSession.run({ [inputName]: tensor });
+			const logits = (outputs["gender_logits"]?.data ??
+				outputs[faceSession.outputNames[0]!]?.data) as Float32Array | undefined;
+			const ageOut = (outputs["age"]?.data ?? outputs[faceSession.outputNames[2]!]?.data) as
+				| Float32Array
+				| undefined;
+			if (logits == null) return null;
+			const { female, male } = genderProbs(logits);
+			return {
+				femaleProb: female,
+				maleProb: male,
+				age: ageOut?.[0] ?? 0,
+			};
+		} finally {
+			tensor.dispose();
+		}
+	};
+}
+
 async function infer(id: number, bitmap: ImageBitmap, detail: boolean): Promise<void> {
 	if (session == null) {
 		scope.postMessage({ type: "inferError", id, error: "engine not initialized" });
@@ -108,7 +177,7 @@ async function infer(id: number, bitmap: ImageBitmap, detail: boolean): Promise<
 	}
 	const t0 = performance.now();
 	try {
-		const detections: Detection[] = [];
+		let detections: Detection[] = [];
 		if (detail) {
 			// Detail pass: only tiles, remapped back to source-normalized boxes.
 			for (const rect of tileRects(bitmap.width, bitmap.height)) {
@@ -133,6 +202,14 @@ async function infer(id: number, bitmap: ImageBitmap, detail: boolean): Promise<
 			const { data, rows, cols } = await runTensor(rgba);
 			detections.push(...parseDetections(data, rows, cols, k, bitmap.width, bitmap.height));
 		}
+		if (faceSession != null) {
+			detections = await refineFaceDetections(
+				detections,
+				makeFaceClassifier(bitmap),
+				bitmap.width,
+				bitmap.height,
+			);
+		}
 		detections.sort((a, b) => b.score - a.score);
 		scope.postMessage({ type: "result", id, detections, ms: performance.now() - t0 });
 	} catch (err) {
@@ -145,9 +222,14 @@ async function infer(id: number, bitmap: ImageBitmap, detail: boolean): Promise<
 scope.onmessage = (event) => {
 	const msg = event.data;
 	if (msg.type === "init") {
-		createSession({ wasmBase: msg.wasmBase, modelUrl: msg.modelUrl })
-			.then(({ backend, session: s }) => {
+		createSession({
+			wasmBase: msg.wasmBase,
+			modelUrl: msg.modelUrl,
+			faceModelUrl: msg.faceModelUrl,
+		})
+			.then(({ backend, session: s, faceSession: fs }) => {
 				session = s;
+				faceSession = fs;
 				scope.postMessage({ type: "ready", backend });
 			})
 			.catch((err) => scope.postMessage({ type: "initError", error: errMsg(err) }));
