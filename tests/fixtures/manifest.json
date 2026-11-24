@@ -1,0 +1,10 @@
+{
+	"comment": "Expected labels per fixture (docs/PLAN.md eval harness). 'expect' = NudeNet classes a human labels present; 'decision' = expected policy verdict.",
+	"files": {
+		"portrait-woman.jpg": { "expect": ["FACE_FEMALE"], "decision": "blur" },
+		"woman-camera.jpg": { "expect": ["FACE_FEMALE"], "decision": "blur" },
+		"hooded-figure.jpg": { "expect": [], "decision": "clear" },
+		"dog.jpg": { "expect": [], "decision": "clear" },
+		"gradient.png": { "expect": [], "decision": "clear" }
+	}
+}

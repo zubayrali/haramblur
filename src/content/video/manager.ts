@@ -1,6 +1,7 @@
 import type { Verdict } from "../../shared/protocol";
 import type { Settings } from "../../shared/settings";
-import { VideoSampler } from "./sampler";
+import { isAllowlisted } from "../site";
+import { HYSTERESIS_WINDOW, isHighConfidence, VideoSampler } from "./sampler";
 import { defaultEnvironment, type SamplerEnvironment, type VideoManagerDeps } from "./types";
 
 /** Max videos sampling at once (docs/PLAN.md adaptive-rate budget). */
@@ -52,23 +53,35 @@ export class VideoManager {
 	get allowed(): boolean {
 		const s = this.settings;
 		if (!s) return false;
-		return s.status && s.blurVideos && !s.allowlist.includes(this.env.hostname());
+		// Same allowlist semantics as the content pipeline (site.ts): normalized
+		// entries, subdomain match — a bare `includes` missed both.
+		return s.status && s.blurVideos && !isAllowlisted(this.env.hostname(), s.allowlist);
 	}
 
 	observe(video: HTMLVideoElement): void {
 		if (this.samplers.has(video)) return;
+		// The pipeline can emit videos before start()'s getSettings resolves —
+		// retry once settings are loaded instead of dropping the element.
+		if (!this.started) {
+			void this.start().then(() => this.observe(video));
+			return;
+		}
 		if (!this.allowed) return;
 		const sampler = new VideoSampler(video, `hb-video-${++this.counter}`, {
 			classifyFrame: this.deps.classifyFrame,
 			env: this.env,
 			onBlurChange: (v, blurred, verdict) => this.onBlurChange(v, blurred, verdict),
+			onVerdict: (v, verdict) => this.onVerdict(v, verdict),
 			onError: (v, err) => this.onError(v, err),
 			onStateChange: () => this.grantSlots(),
 		});
 		this.samplers.set(video, sampler);
 		sampler.start();
-		// Fail closed: blur until the first verdict when blurryStartMode is on.
-		if (this.settings?.blurryStartMode) this.applyBlur(video, "processing");
+		// Fail closed: blur until the first verdict, matching the pipeline's
+		// blurOnUncertainty (failClosed || blurryStartMode).
+		if (this.settings && (this.settings.blurryStartMode || this.settings.failClosed)) {
+			this.applyBlur(video, "processing");
+		}
 		this.grantSlots();
 	}
 
@@ -85,6 +98,7 @@ export class VideoManager {
 		this.unwatch?.();
 		this.unwatch = null;
 		for (const video of [...this.samplers.keys()]) this.unobserve(video);
+		this.started = false;
 	}
 
 	/**
@@ -107,10 +121,36 @@ export class VideoManager {
 		else this.clearBlur(video);
 	}
 
+	/**
+	 * Reconcile the DOM on every verdict, not just hysteresis flips: a
+	 * pre-verdict (fail-closed) blur must clear once clear is confirmed, and
+	 * a blurred element clears when hysteresis flips back. `blurred` stays
+	 * the single source of truth.
+	 */
+	private onVerdict(video: HTMLVideoElement, verdict: Verdict): void {
+		const sampler = this.samplers.get(video);
+		if (sampler == null) return;
+		if (sampler.blurred) {
+			this.applyBlur(video, "blurred", verdict);
+			return;
+		}
+		const confirmedClear =
+			isHighConfidence(verdict) ||
+			(sampler.decisions.length >= HYSTERESIS_WINDOW &&
+				sampler.decisions.every((d) => d === "clear"));
+		if (confirmedClear) this.clearBlur(video);
+	}
+
 	private onError(video: HTMLVideoElement, _err: unknown): void {
 		// Fail mode (PLAN.md): keep blurred by default on timeout/error.
 		if (this.settings?.failClosed ?? true) this.applyBlur(video, "error");
 		else this.clearBlur(video);
+	}
+
+	/** Reveal a blurred video permanently (context menu / click reveal). */
+	reveal(video: HTMLVideoElement): void {
+		this.clearBlur(video);
+		video.dataset.hbReveal = "click";
 	}
 
 	private applyBlur(
@@ -118,6 +158,8 @@ export class VideoManager {
 		state: "processing" | "blurred" | "error",
 		verdict?: Verdict | null,
 	): void {
+		// A user-initiated reveal wins over later verdicts/settings changes.
+		if (video.dataset.hbReveal === "click") return;
 		const s = this.settings;
 		const blurPx = Math.min(Math.max(s?.blurAmount ?? 20, 0), 100);
 		video.dataset.hbState = state;
@@ -131,7 +173,8 @@ export class VideoManager {
 
 	private clearBlur(video: HTMLVideoElement): void {
 		video.style.filter = "";
-		delete video.dataset.hbState;
+		// Keep a hb-state so getTabStats still counts the video (as "clear").
+		video.dataset.hbState = "clear";
 		delete video.dataset.hbBlur;
 		delete video.dataset.hbReasons;
 		delete video.dataset.hbRevealed;

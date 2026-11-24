@@ -48,12 +48,12 @@ describe("captureFrame", () => {
 		expect(await captureFrame(asVideo(v), h.env)).toBeNull();
 	});
 
-	it("exports a JPEG data URL and a hash", async () => {
+	it("exports a PNG data URL and a hash", async () => {
 		const h = makeHarness();
 		const v = new FakeVideo();
 		const frame = await captureFrame(asVideo(v), h.env);
 		expect(frame).not.toBeNull();
-		expect(frame?.dataUrl.startsWith("data:image/jpeg")).toBe(true);
+		expect(frame?.dataUrl.startsWith("data:image/png")).toBe(true);
 		expect(frame?.width).toBe(320);
 		expect(frame?.height).toBe(180);
 		expect(frame?.hash).toHaveLength(256);

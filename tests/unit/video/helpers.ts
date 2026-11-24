@@ -139,7 +139,7 @@ export function fakeCanvasFactory(fill: () => number) {
 					data: data.subarray(0, w * h * 4),
 				}),
 			}),
-			toDataURL: () => "data:image/jpeg;base64,AAAA",
+			toDataURL: () => "data:image/png;base64,AAAA",
 		} as unknown as import("../../../src/content/video/types").CanvasLike;
 	};
 }

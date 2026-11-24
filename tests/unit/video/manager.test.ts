@@ -132,7 +132,7 @@ describe("VideoManager", () => {
 		manager.observe(asVideo(v));
 		h.pumpFrames();
 		await vi.waitFor(() => expect(h.classifyFrame).toHaveBeenCalled());
-		expect(v.dataset.hbState).toBeUndefined();
+		expect(v.dataset.hbState).toBe("clear");
 		expect(v.style.filter).toBe("");
 	});
 
@@ -175,7 +175,7 @@ describe("VideoManager", () => {
 		await vi.waitFor(() => expect(v.dataset.hbState).toBe("blurred"));
 		watch({ ...settingsRef, status: false }, settingsRef);
 		expect(manager.size).toBe(0);
-		expect(v.dataset.hbState).toBeUndefined();
+		expect(v.dataset.hbState).toBe("clear");
 		expect(v.style.filter).toBe("");
 	});
 
@@ -189,6 +189,6 @@ describe("VideoManager", () => {
 		await vi.waitFor(() => expect(v.dataset.hbState).toBe("blurred"));
 		manager.unobserve(asVideo(v));
 		expect(manager.size).toBe(0);
-		expect(v.dataset.hbState).toBeUndefined();
+		expect(v.dataset.hbState).toBe("clear");
 	});
 });

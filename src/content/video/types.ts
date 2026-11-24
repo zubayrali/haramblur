@@ -89,6 +89,13 @@ export interface VideoSamplerDeps {
 	 * or on a classify error (`verdict === null`, `error` set).
 	 */
 	onBlurChange?: (video: HTMLVideoElement, blurred: boolean, verdict: Verdict | null) => void;
+	/**
+	 * Called after every verdict, hysteresis applied or not. The manager uses
+	 * it to reconcile a pre-verdict (fail-closed) blur once verdicts confirm
+	 * clear — a state change alone never fires for an element that never
+	 * flipped to blurred.
+	 */
+	onVerdict?: (video: HTMLVideoElement, verdict: Verdict) => void;
 	onError?: (video: HTMLVideoElement, error: unknown) => void;
 	/** Called whenever the machine's lifecycle state changes. */
 	onStateChange?: (video: HTMLVideoElement, state: string) => void;
