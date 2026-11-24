@@ -4,7 +4,7 @@
 	import { type I18nKey, t } from "../../shared/i18n";
 	import { sendMessage } from "../../shared/protocol";
 	import type { EngineState, EngineStatus, TabStats } from "../../shared/protocol";
-	import { getSettings, settings, watchSettings } from "../../shared/settings";
+	import { getSettings, settings, watchSettings } from "../../shared/settings-store";
 	import type { Settings } from "../../shared/settings";
 	import Toggle from "../../ui/Toggle.svelte";
 	import { hostnameFromUrl, toggleAllowlistHost } from "../../ui/host";

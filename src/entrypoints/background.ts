@@ -13,7 +13,7 @@ import {
 	type TabStats,
 	type Verdict,
 } from "../shared/protocol";
-import { getSettings } from "../shared/settings";
+import { getSettings } from "../shared/settings-store";
 
 const OFFSCREEN_DOCUMENT_URL = "/offscreen.html";
 const REASON_WORKERS = "WORKERS" as Browser.offscreen.Reason;
