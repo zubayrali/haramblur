@@ -108,6 +108,35 @@ describe("TaskQueue", () => {
 		expect(order).toEqual(["a", "z", "m"]);
 	});
 
+	it("evicts the oldest settled keys past settledCap; never queued/in-flight", async () => {
+		const q = new TaskQueue({ settledCap: 3 });
+		for (let i = 0; i < 5; i++) await q.enqueue(`k${i}`, resolved(i));
+		// k0 and k1 were evicted — re-enqueueing them runs again.
+		let calls = 0;
+		const rerun = () => {
+			calls += 1;
+			return Promise.resolve("rerun");
+		};
+		expect(await q.enqueue("k0", rerun)).toBe("rerun");
+		expect(await q.enqueue("k1", rerun)).toBe("rerun");
+		expect(calls).toBe(2);
+		// k2..k4 are still deduped.
+		expect(await q.enqueue("k4", rerun)).toBe(4);
+		expect(calls).toBe(2);
+	});
+
+	it("clear() drops settled dedup so keys re-run", async () => {
+		const q = new TaskQueue();
+		await q.enqueue("u", resolved(1));
+		q.clear();
+		let calls = 0;
+		await q.enqueue("u", () => {
+			calls += 1;
+			return Promise.resolve(2);
+		});
+		expect(calls).toBe(1);
+	});
+
 	it("enqueue() of a queued duplicate with higher priority boosts it", async () => {
 		const q = new TaskQueue({ concurrency: 1 });
 		const order: string[] = [];

@@ -1,13 +1,13 @@
 import type { Verdict } from "../../shared/protocol";
-import type { Settings } from "../../shared/settings";
-import { isAllowlisted } from "../site";
+import { DEFAULT_SETTINGS, type Settings } from "../../shared/settings";
+import { blurOnError, blurWhilePending, setBlurred, setReasons, setState } from "../blur";
+import { applyBlurMode, removeRegionBlur } from "../region";
+import { isAllowlisted, reasonsToJson } from "../site";
 import { HYSTERESIS_WINDOW, isHighConfidence, VideoSampler } from "./sampler";
 import { defaultEnvironment, type SamplerEnvironment, type VideoManagerDeps } from "./types";
 
 /** Max videos sampling at once (docs/PLAN.md adaptive-rate budget). */
 export const MAX_CONCURRENT_VIDEOS = 4;
-/** Hover delay before a blurred video reveals, matching the image behaviour. */
-export const REVEAL_DELAY_MS = 1_000;
 
 /**
  * Coordinates one `VideoSampler` per `<video>`: admits videos, hands out at
@@ -22,8 +22,6 @@ export class VideoManager {
 	private readonly deps: VideoManagerDeps;
 	private readonly env: SamplerEnvironment;
 	private readonly samplers = new Map<HTMLVideoElement, VideoSampler>();
-	private readonly revealCleanups = new Map<HTMLVideoElement, () => void>();
-	private readonly revealTimers = new Map<HTMLVideoElement, unknown>();
 	private counter = 0;
 	private settings: Settings | null = null;
 	private unwatch: (() => void) | null = null;
@@ -77,11 +75,9 @@ export class VideoManager {
 		});
 		this.samplers.set(video, sampler);
 		sampler.start();
-		// Fail closed: blur until the first verdict, matching the pipeline's
-		// blurOnUncertainty (failClosed || blurryStartMode).
-		if (this.settings && (this.settings.blurryStartMode || this.settings.failClosed)) {
-			this.applyBlur(video, "processing");
-		}
+		// Pending blur follows blurryStartMode — same rule as images; the
+		// sampler's own verdicts take over from here.
+		if (this.settings) this.applyBlurState(video, "pending", null);
 		this.grantSlots();
 	}
 
@@ -117,21 +113,21 @@ export class VideoManager {
 	}
 
 	private onBlurChange(video: HTMLVideoElement, blurred: boolean, verdict: Verdict | null): void {
-		if (blurred) this.applyBlur(video, "blurred", verdict);
+		if (blurred) this.applyBlurState(video, "blur", verdict);
 		else this.clearBlur(video);
 	}
 
 	/**
 	 * Reconcile the DOM on every verdict, not just hysteresis flips: a
-	 * pre-verdict (fail-closed) blur must clear once clear is confirmed, and
-	 * a blurred element clears when hysteresis flips back. `blurred` stays
-	 * the single source of truth.
+	 * pre-verdict (pending) blur must clear once clear is confirmed, and a
+	 * blurred element clears when hysteresis flips back. While blurred, every
+	 * verdict refreshes the region boxes — scene changes move them.
 	 */
 	private onVerdict(video: HTMLVideoElement, verdict: Verdict): void {
 		const sampler = this.samplers.get(video);
 		if (sampler == null) return;
 		if (sampler.blurred) {
-			this.applyBlur(video, "blurred", verdict);
+			this.applyBlurState(video, "blur", verdict);
 			return;
 		}
 		const confirmedClear =
@@ -143,8 +139,7 @@ export class VideoManager {
 
 	private onError(video: HTMLVideoElement, _err: unknown): void {
 		// Fail mode (PLAN.md): keep blurred by default on timeout/error.
-		if (this.settings?.failClosed ?? true) this.applyBlur(video, "error");
-		else this.clearBlur(video);
+		this.applyBlurState(video, "error", null);
 	}
 
 	/** Reveal a blurred video permanently (context menu / click reveal). */
@@ -153,73 +148,38 @@ export class VideoManager {
 		video.dataset.hbReveal = "click";
 	}
 
-	private applyBlur(
+	/**
+	 * Apply the unified `data-hb-state` vocabulary ("pending" | "blur" |
+	 * "clear" | "error") and route the visual through blur.ts + the region
+	 * portal — no inline `style.filter`, so hover reveal stays a single
+	 * mechanism shared with images.
+	 */
+	private applyBlurState(
 		video: HTMLVideoElement,
-		state: "processing" | "blurred" | "error",
-		verdict?: Verdict | null,
+		state: "pending" | "blur" | "error",
+		verdict: Verdict | null,
 	): void {
 		// A user-initiated reveal wins over later verdicts/settings changes.
 		if (video.dataset.hbReveal === "click") return;
 		const s = this.settings;
-		const blurPx = Math.min(Math.max(s?.blurAmount ?? 20, 0), 100);
-		video.dataset.hbState = state;
-		video.dataset.hbBlur = "";
-		video.dataset.hbReasons = JSON.stringify(verdict?.reasons ?? []);
-		video.style.setProperty("--hb-blur", `${blurPx}px`);
-		video.style.filter = `blur(${blurPx}px)${s?.gray ? " grayscale(1)" : ""}`;
-		if (s?.unblurVideos) this.bindReveal(video);
-		else this.unbindReveal(video);
+		setState(video, state);
+		setReasons(video, reasonsToJson(verdict?.reasons ?? []));
+		if (state === "blur" && verdict != null && s != null) {
+			applyBlurMode(video, verdict.reasons, "video", s);
+			return;
+		}
+		removeRegionBlur(video);
+		const effective = s ?? DEFAULT_SETTINGS;
+		setBlurred(video, state === "pending" ? blurWhilePending(effective) : blurOnError(effective));
 	}
 
 	private clearBlur(video: HTMLVideoElement): void {
-		video.style.filter = "";
+		removeRegionBlur(video);
+		setBlurred(video, false);
 		// Keep a hb-state so getTabStats still counts the video (as "clear").
-		video.dataset.hbState = "clear";
-		delete video.dataset.hbBlur;
+		setState(video, "clear");
 		delete video.dataset.hbReasons;
 		delete video.dataset.hbRevealed;
-		this.unbindReveal(video);
-	}
-
-	/**
-	 * Reveal-on-hover, same settings as images (`unblurVideos`): after
-	 * REVEAL_DELAY_MS hovering a blurred video, drop the filter until the
-	 * pointer leaves.
-	 */
-	private bindReveal(video: HTMLVideoElement): void {
-		if (this.revealCleanups.has(video)) return;
-		const enter = () => {
-			this.revealTimers.set(
-				video,
-				this.env.setTimeout(() => {
-					video.style.filter = "";
-					video.dataset.hbRevealed = "";
-				}, REVEAL_DELAY_MS),
-			);
-		};
-		const leave = () => {
-			const timer = this.revealTimers.get(video);
-			if (timer !== undefined) this.env.clearTimeout(timer);
-			this.revealTimers.delete(video);
-			if (video.dataset.hbRevealed === undefined) return;
-			delete video.dataset.hbRevealed;
-			const sampler = this.samplers.get(video);
-			if (sampler?.blurred) this.applyBlur(video, "blurred", undefined);
-		};
-		video.addEventListener("mouseenter", enter);
-		video.addEventListener("mouseleave", leave);
-		this.revealCleanups.set(video, () => {
-			video.removeEventListener("mouseenter", enter);
-			video.removeEventListener("mouseleave", leave);
-			const timer = this.revealTimers.get(video);
-			if (timer !== undefined) this.env.clearTimeout(timer);
-			this.revealTimers.delete(video);
-		});
-	}
-
-	private unbindReveal(video: HTMLVideoElement): void {
-		this.revealCleanups.get(video)?.();
-		this.revealCleanups.delete(video);
 	}
 
 	private applySettings(next: Settings): void {
@@ -230,11 +190,18 @@ export class VideoManager {
 			for (const video of [...this.samplers.keys()]) this.unobserve(video);
 			return;
 		}
-		// Settings like blurAmount/gray/unblurVideos apply live.
+		// Settings like blurAmount/gray/unblurVideos/regionBlur apply live —
+		// and the blur must be rebuilt from the sampler's last verdict, not
+		// wiped: reasons drive both the policy re-decide and region boxes.
 		for (const sampler of this.samplers.values()) {
 			const video = sampler.video;
-			if (sampler.blurred) this.applyBlur(video, "blurred", undefined);
-			else this.unbindReveal(video);
+			if (sampler.blurred) {
+				this.applyBlurState(video, "blur", sampler.lastVerdict);
+			} else if (video.dataset.hbState === "pending" || video.dataset.hbState === "error") {
+				this.applyBlurState(video, video.dataset.hbState as "pending" | "error", null);
+			} else {
+				removeRegionBlur(video);
+			}
 		}
 		this.grantSlots();
 	}

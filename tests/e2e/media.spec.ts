@@ -93,8 +93,17 @@ test("media pipeline: classify, blur, srcset/picture, background, iframe, video"
 		await expect(page.locator("#p-woman")).toHaveAttribute("data-hb-state", "blur", {
 			timeout: 30_000,
 		});
-		await expect(page.locator("#p-woman")).toHaveAttribute("data-hb-blur", "1");
 		await expect(page.locator("#p-woman")).toHaveAttribute("data-hb-reasons", /FACE_FEMALE/);
+		// Region blur (default) marks data-hb-region; the whole-element
+		// fallback marks data-hb-blur — either is a live blur.
+		await page.waitForFunction(
+			() => {
+				const el = document.getElementById("p-woman");
+				return el?.dataset.hbBlur === "1" || el?.dataset.hbRegion === "1";
+			},
+			undefined,
+			{ timeout: 30_000, polling: 250 },
+		);
 		await expect(page.locator("#grad")).toHaveAttribute("data-hb-state", "clear", {
 			timeout: 30_000,
 		});
@@ -135,7 +144,7 @@ test("media pipeline: classify, blur, srcset/picture, background, iframe, video"
 		// The sampler pauses while a video is off-screen (PLAN.md), so it must
 		// be scrolled into the viewport before it can sample.
 		await page.locator("#live-vid").scrollIntoViewIfNeeded();
-		await expect(page.locator("#live-vid")).toHaveAttribute("data-hb-state", "blurred", {
+		await expect(page.locator("#live-vid")).toHaveAttribute("data-hb-state", "blur", {
 			timeout: 30_000,
 		});
 	} finally {
@@ -159,17 +168,25 @@ test("reveal on click and hover respect settings", async () => {
 			timeout: 30_000,
 		});
 
-		// Click reveal: permanent.
+		// Click reveal: permanent — works for both blur modes (the click
+		// handler matches data-hb-blur and data-hb-region).
 		await page.locator("#p-woman").click();
 		await expect(page.locator("#p-woman")).toHaveAttribute("data-hb-reveal", "click");
 		expect(await page.locator("#p-woman").getAttribute("data-hb-blur")).toBeNull();
+		expect(await page.locator("#p-woman").getAttribute("data-hb-region")).toBeNull();
 
-		// Hover reveal: pure CSS after the 1s delay; computed filter drops to 0.
+		// Hover reveal after the 1s delay. Whole-element mode drops the CSS
+		// filter; region mode fades the portal host's opacity instead.
 		await page.locator("#srcset-img").hover();
 		await page.waitForFunction(
 			() => {
 				const el = document.getElementById("srcset-img");
 				if (el == null) return false;
+				if (el.dataset.hbRegion === "1") {
+					const portal = document.getElementById("hb-region-portal");
+					const hosts = portal?.shadowRoot?.querySelectorAll<HTMLElement>(".hb-rh") ?? [];
+					return [...hosts].some((h) => h.style.opacity === "0");
+				}
 				const f = getComputedStyle(el).filter;
 				return f === "none" || f.startsWith("blur(0px)");
 			},
@@ -250,6 +267,143 @@ test("popup ping, getTabStats, and engineStatus return real values", async () =>
 			timeout: 30_000,
 		});
 		await expect(popup.getByTestId("media-count")).toBeVisible();
+	} finally {
+		await closeExtension(context, userDataDir);
+		await close();
+	}
+});
+
+/**
+ * X.com (React Native Web) renders each photo twice: an `opacity: 0` <img>
+ * beside a <div> carrying the same pixels as background-image. The invisible
+ * img must be skipped entirely — only the visible bg element is tracked,
+ * region-blurred, and revealed.
+ */
+const XPAGE = `<!doctype html>
+<html><head><meta charset="utf-8"><title>hb x-fixture</title>
+<style>
+#xwrap { position:relative; width:320px; height:200px; margin:8px; }
+#ximg { position:absolute; inset:0; width:100%; height:100%; opacity:0; }
+#xbg { position:absolute; inset:0; background-image:url('/portrait-woman.jpg'); background-size:cover; }
+</style></head><body>
+<div id="xwrap"><img id="ximg" src="/portrait-woman.jpg"><div id="xbg"></div></div>
+</body></html>`;
+
+test("X.com paired media: invisible img skipped, bg div region-blurred", async () => {
+	const { context, extensionId, userDataDir } = await launchExtension();
+	const { url, close } = await serveFixtures({ "/x": XPAGE });
+	try {
+		const ext = await context.newPage();
+		await ext.goto(`chrome-extension://${extensionId}/popup.html`);
+		// unblurImages enables hover reveal for the region portal.
+		await writeSettings(ext, { unblurImages: true, strictness: 1 });
+
+		const page = await context.newPage();
+		await page.goto(`${url}/x`);
+
+		// Only the visible background element is tracked and blurred.
+		await expect(page.locator("#xbg")).toHaveAttribute("data-hb-kind", "background");
+		await expect(page.locator("#xbg")).toHaveAttribute("data-hb-state", "blur", {
+			timeout: 30_000,
+		});
+		expect(await page.locator("#ximg").getAttribute("data-hb-kind")).toBeNull();
+		expect(await page.locator("#ximg").getAttribute("data-hb-state")).toBeNull();
+
+		// Region mode: the portal host tracks the element's viewport rect
+		// (±2px — sub-pixel layout rounding only). The host lives inside the
+		// portal's shadow root — querySelector can't pierce it.
+		await page.waitForFunction(
+			() =>
+				document.getElementById("hb-region-portal")?.shadowRoot?.querySelector(".hb-rh") != null,
+			undefined,
+			{ timeout: 15_000, polling: 100 },
+		);
+		const elBox = await page.locator("#xbg").boundingBox();
+		const hostBox = await page.locator("#hb-region-portal .hb-rh").boundingBox();
+		expect(elBox).not.toBeNull();
+		expect(hostBox).not.toBeNull();
+		for (const k of ["x", "y", "width", "height"] as const) {
+			expect(Math.abs((hostBox?.[k] ?? 0) - (elBox?.[k] ?? 0))).toBeLessThanOrEqual(2);
+		}
+
+		// Hover reveal fades the portal host after the 1s delay.
+		await page.locator("#xbg").hover();
+		await page.waitForFunction(
+			() => {
+				const portal = document.getElementById("hb-region-portal");
+				const hosts = portal?.shadowRoot?.querySelectorAll<HTMLElement>(".hb-rh") ?? [];
+				return [...hosts].some((h) => h.style.opacity === "0");
+			},
+			undefined,
+			{ timeout: 15_000, polling: 200 },
+		);
+
+		// Removing the element cleans up its portal child.
+		await page.evaluate(() => document.getElementById("xbg")?.remove());
+		await page.waitForFunction(
+			() =>
+				(document.getElementById("hb-region-portal")?.shadowRoot?.querySelectorAll(".hb-rh") ?? [])
+					.length === 0,
+			undefined,
+			{ timeout: 10_000, polling: 100 },
+		);
+	} finally {
+		await closeExtension(context, userDataDir);
+		await close();
+	}
+});
+
+test("blurImages false→true live-toggle re-classifies the page", async () => {
+	const { context, extensionId, userDataDir } = await launchExtension();
+	const { url, close } = await serveFixtures({ "/": PAGE, "/frame.html": FRAME });
+	try {
+		const ext = await context.newPage();
+		await ext.goto(`chrome-extension://${extensionId}/popup.html`);
+		await writeSettings(ext, { blurImages: false, strictness: 1 });
+
+		const page = await context.newPage();
+		await page.goto(url);
+		// Images disabled: nothing is tracked at all.
+		await page.waitForTimeout(2_000);
+		expect(await page.locator("img[data-hb-kind]").count()).toBe(0);
+
+		// Flip on mid-session: the kindEnabled rescan must classify images
+		// instead of leaving them marked-but-blurred with no reasons.
+		await writeSettings(ext, { blurImages: true });
+		await expect(page.locator("#p-woman")).toHaveAttribute("data-hb-state", "blur", {
+			timeout: 30_000,
+		});
+		await expect(page.locator("#p-woman")).toHaveAttribute("data-hb-reasons", /FACE_FEMALE/);
+	} finally {
+		await closeExtension(context, userDataDir);
+		await close();
+	}
+});
+
+test("blurryStartMode:false leaves pending elements unblurred", async () => {
+	const { context, extensionId, userDataDir } = await launchExtension();
+	const { url, close } = await serveFixtures({ "/": PAGE, "/frame.html": FRAME });
+	try {
+		const ext = await context.newPage();
+		await ext.goto(`chrome-extension://${extensionId}/popup.html`);
+		// Engine is cold on a fresh profile — the first verdicts take seconds,
+		// so the pending window is wide enough to observe deterministically.
+		await writeSettings(ext, { blurryStartMode: false, strictness: 1 });
+
+		const page = await context.newPage();
+		await page.goto(url);
+		await page.waitForFunction(
+			() =>
+				[...document.querySelectorAll<HTMLElement>('[data-hb-state="pending"]')].some(
+					(el) => el.dataset.hbBlur !== "1" && el.dataset.hbRegion !== "1",
+				),
+			undefined,
+			{ timeout: 20_000, polling: 50 },
+		);
+		// And classification still resolves normally afterwards.
+		await expect(page.locator("#p-woman")).toHaveAttribute("data-hb-state", "blur", {
+			timeout: 30_000,
+		});
 	} finally {
 		await closeExtension(context, userDataDir);
 		await close();

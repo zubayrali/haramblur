@@ -19,6 +19,12 @@ export interface TaskQueueOptions {
 	maxRetries?: number;
 	/** Delay before a retry. Default 250 ms. */
 	retryDelayMs?: number;
+	/**
+	 * Max settled (successful) keys retained for dedup. Oldest settled entries
+	 * are evicted past this; queued and in-flight tasks are never evicted.
+	 * Default 1000.
+	 */
+	settledCap?: number;
 }
 
 interface QueuedTask<T> {
@@ -36,17 +42,22 @@ export class TaskQueue {
 	private readonly concurrency: number;
 	private readonly maxRetries: number;
 	private readonly retryDelayMs: number;
+	private readonly settledCap: number;
 	private inflight = 0;
 	private readonly pending: QueuedTask<unknown>[] = [];
 	// key → promise for every enqueued task; settled entries stay so re-found
-	// media with the same URL never re-requests on this page.
+	// media with the same URL never re-requests on this page. Bounded: only
+	// settled keys are evicted (oldest first), never queued/in-flight ones.
 	private readonly byKey = new Map<string, Promise<unknown>>();
 	private readonly pendingByKey = new Map<string, QueuedTask<unknown>>();
+	private readonly runningKeys = new Set<string>();
+	private readonly settledKeys = new Set<string>();
 
 	constructor(options: TaskQueueOptions = {}) {
 		this.concurrency = options.concurrency ?? 4;
 		this.maxRetries = options.maxRetries ?? 1;
 		this.retryDelayMs = options.retryDelayMs ?? 250;
+		this.settledCap = options.settledCap ?? 1000;
 	}
 
 	/** Tasks currently queued (not running). */
@@ -80,6 +91,8 @@ export class TaskQueue {
 			if (queued != null && priority === "visible") queued.priority = "visible";
 			return existing as Promise<T>;
 		}
+		// Re-enqueue after eviction/delete starts a fresh settled lifecycle.
+		this.settledKeys.delete(key);
 		let resolve!: (value: T) => void;
 		let reject!: (reason: unknown) => void;
 		const promise = new Promise<T>((res, rej) => {
@@ -117,6 +130,21 @@ export class TaskQueue {
 	delete(key: string): void {
 		this.byKey.delete(key);
 		this.pendingByKey.delete(key);
+		this.settledKeys.delete(key);
+	}
+
+	/**
+	 * Drop all bookkeeping (pipeline stop / site toggle). Queued tasks are
+	 * abandoned without settling — their callers' promises never resolve, so
+	 * no late verdict can re-apply state after the pipeline stopped. In-flight
+	 * tasks still settle normally; their callers must guard on pipeline state.
+	 */
+	clear(): void {
+		this.pending.length = 0;
+		this.pendingByKey.clear();
+		this.byKey.clear();
+		this.settledKeys.clear();
+		this.runningKeys.clear();
 	}
 
 	private nextTask(): QueuedTask<unknown> | undefined {
@@ -134,10 +162,35 @@ export class TaskQueue {
 			const task = this.nextTask();
 			if (task == null) return;
 			this.inflight += 1;
+			this.runningKeys.add(task.key);
 			void this.runTask(task).finally(() => {
 				this.inflight -= 1;
+				this.runningKeys.delete(task.key);
 				this.pump();
 			});
+		}
+	}
+
+	/**
+	 * Record a successfully settled key and evict the oldest settled entries
+	 * past `settledCap`. `byKey` is insertion-ordered, so the first settled
+	 * key found scanning from the front is the oldest.
+	 */
+	private noteSettled(key: string): void {
+		// clear()/delete() may have dropped the entry while the task ran.
+		if (!this.byKey.has(key)) return;
+		this.settledKeys.add(key);
+		while (this.settledKeys.size > this.settledCap) {
+			let evicted = false;
+			for (const k of this.byKey.keys()) {
+				if (this.settledKeys.has(k)) {
+					this.byKey.delete(k);
+					this.settledKeys.delete(k);
+					evicted = true;
+					break;
+				}
+			}
+			if (!evicted) break; // settled keys already gone via delete()/clear()
 		}
 	}
 
@@ -147,11 +200,13 @@ export class TaskQueue {
 			try {
 				const value = await task.run();
 				task.resolve(value);
+				this.noteSettled(task.key);
 				return;
 			} catch (err) {
 				if (task.attemptsLeft > 0) await sleep(this.retryDelayMs);
 				else {
 					this.byKey.delete(task.key);
+					this.settledKeys.delete(task.key);
 					task.reject(err);
 					return;
 				}

@@ -1,13 +1,17 @@
 import type { Canvas2dLike, CanvasLike, SamplerEnvironment } from "./types";
 
 /** Long-edge cap for frames sent to the engine (docs/PLAN.md). */
-export const MAX_FRAME_EDGE = 320;
+export const MAX_FRAME_EDGE = 480;
 /**
- * Frame payload encoding. Lossless PNG: JPEG re-encoding — even at q0.95 —
- * collapses detection scores on ≤320px frames (a ~0.44 face on the source
- * scored ~0.16 after JPEG), producing false `clear` verdicts.
+ * Frame payload encoding: WebP q0.92 — ~3× smaller than PNG at this size with
+ * quality the detector tolerates (unlike JPEG, whose blocking artifacts
+ * collapse detection scores on small frames: a ~0.44 face on the source
+ * scored ~0.16 after JPEG q0.95, producing false `clear` verdicts). PNG is
+ * the fallback for encoders without WebP.
  */
-export const FRAME_MIME = "image/png";
+export const FRAME_MIME = "image/webp";
+export const FRAME_QUALITY = 0.92;
+export const FRAME_MIME_FALLBACK = "image/png";
 /** Per-cell luma hash is HASH_GRID × HASH_GRID. */
 export const HASH_GRID = 16;
 
@@ -64,23 +68,33 @@ function lumaHash(ctx: Canvas2dLike, width: number, height: number): Uint8Array 
 	return hash;
 }
 
-async function canvasToPngDataUrl(canvas: CanvasLike): Promise<string> {
+/**
+ * Encode the canvas as a frame data URL. WebP is preferred; encoders that
+ * don't support it silently produce PNG (convertToBlob) or an empty/PNG
+ * data URL (toDataURL), both of which fall back cleanly.
+ */
+async function canvasToFrameDataUrl(canvas: CanvasLike): Promise<string> {
 	if ("convertToBlob" in canvas) {
-		const blob = await canvas.convertToBlob({ type: FRAME_MIME });
+		let blob = await canvas.convertToBlob({ type: FRAME_MIME, quality: FRAME_QUALITY });
+		if (blob.type !== FRAME_MIME) {
+			blob = await canvas.convertToBlob({ type: FRAME_MIME_FALLBACK });
+		}
 		const bytes = new Uint8Array(await blob.arrayBuffer());
 		let bin = "";
 		for (let i = 0; i < bytes.length; i += 0x8000) {
 			bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
 		}
-		return `data:${FRAME_MIME};base64,${btoa(bin)}`;
+		return `data:${blob.type};base64,${btoa(bin)}`;
 	}
-	return (canvas as HTMLCanvasElement).toDataURL(FRAME_MIME);
+	const url = (canvas as HTMLCanvasElement).toDataURL(FRAME_MIME, FRAME_QUALITY);
+	if (url.startsWith("data:image/webp")) return url;
+	return (canvas as HTMLCanvasElement).toDataURL(FRAME_MIME_FALLBACK);
 }
 
 /**
  * Draw the video's current frame scaled to at most `MAX_FRAME_EDGE` on the
- * long edge and return it as a PNG data URL plus a cheap luma hash used for
- * duplicate detection and scene-change detection.
+ * long edge and return it as a WebP (PNG-fallback) data URL plus a cheap
+ * luma hash used for duplicate detection and scene-change detection.
  *
  * Returns `null` when the element has no drawable frame yet.
  */
@@ -98,7 +112,7 @@ export async function captureFrame(
 	const ctx = canvas.getContext("2d") as Canvas2dLike | null;
 	if (!ctx) return null;
 	ctx.drawImage(video, 0, 0, width, height);
-	const dataUrl = await canvasToPngDataUrl(canvas);
+	const dataUrl = await canvasToFrameDataUrl(canvas);
 	return {
 		dataUrl,
 		width,

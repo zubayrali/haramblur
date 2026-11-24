@@ -49,10 +49,10 @@ export interface WireResponse {
 	err?: unknown;
 }
 
-/** Default settings — mirrors DEFAULT_SETTINGS in src/shared/settings.ts. */
+/** Default settings — mirrors DEFAULT_SETTINGS in src/shared/settings.ts (v4). */
 export const BASE_SETTINGS = {
 	status: true,
-	blurryStartMode: false,
+	blurryStartMode: true,
 	blurAmount: 20,
 	gray: true,
 	strictness: 0.5,
@@ -60,10 +60,13 @@ export const BASE_SETTINGS = {
 	blurVideos: true,
 	blurMale: false,
 	blurFemale: true,
+	strictModesty: false,
+	skipChildren: true,
 	unblurImages: false,
 	unblurVideos: false,
 	allowlist: [] as string[],
 	failClosed: true,
+	regionBlur: true,
 };
 
 /** Launch Chromium with the unpacked extension loaded. */
