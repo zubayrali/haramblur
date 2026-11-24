@@ -1,20 +1,38 @@
 import { type Browser, browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
+import { createEngineHost, type EngineHost } from "../engine/host";
 import { t } from "../shared/i18n";
-import { type ContextMediaKind, onMessage, sendMessage, type TabStats } from "../shared/protocol";
+import {
+	type ClassifyResult,
+	type ContextMediaKind,
+	type EngineRequest,
+	type EngineStatus,
+	isEngineError,
+	onMessage,
+	sendMessage,
+	type TabStats,
+	type Verdict,
+} from "../shared/protocol";
+import { getSettings } from "../shared/settings";
 
 const OFFSCREEN_DOCUMENT_URL = "/offscreen.html";
 const REASON_WORKERS = "WORKERS" as Browser.offscreen.Reason;
+const HOST_PROBE_ATTEMPTS = 30;
+const HOST_PROBE_DELAY_MS = 150;
 
 const MENU_REVEAL = "hb-reveal-media";
 const MENU_RECHECK = "hb-recheck-media";
 
 /**
- * Chrome hosts the ML engine in an offscreen document so it can spawn a
- * dedicated Worker (MV3 service workers can't). Firefox builds have no
- * offscreen API — WP1 hosts the engine in the background page there instead
- * (docs/PLAN.md "Engine host").
+ * How the background reaches the engine host (docs/PLAN.md "Engine host"):
+ * Chrome runs it in an offscreen document; Firefox runs the same host code
+ * inside the background page (`browser.offscreen` does not exist there).
  */
+interface EngineClient {
+	run(request: EngineRequest): Promise<ClassifyResult>;
+	status(): Promise<EngineStatus>;
+}
+
 async function ensureOffscreenDocument(): Promise<void> {
 	const offscreen = browser.offscreen;
 	if (offscreen == null) return;
@@ -24,6 +42,87 @@ async function ensureOffscreenDocument(): Promise<void> {
 		reasons: [REASON_WORKERS],
 		justification: "Run on-device ML inference (onnxruntime-web) in a dedicated worker.",
 	});
+}
+
+/** Wait until the offscreen host's message listener answers a status probe. */
+async function probeHost(): Promise<void> {
+	for (let i = 0; i < HOST_PROBE_ATTEMPTS; i++) {
+		try {
+			const status = await sendMessage("engineHostStatus");
+			if (typeof status?.state === "string") return;
+		} catch {
+			// Host page is still loading its listener.
+		}
+		await new Promise((resolve) => setTimeout(resolve, HOST_PROBE_DELAY_MS));
+	}
+	throw new Error("engine host did not come up");
+}
+
+function chromeClient(): EngineClient {
+	let ready: Promise<void> | null = null;
+	const ensure = async (): Promise<void> => {
+		if (ready != null) return ready;
+		ready = ensureOffscreenDocument().then(probeHost);
+		try {
+			await ready;
+		} catch (err) {
+			ready = null;
+			throw err;
+		}
+	};
+	return {
+		async run(request) {
+			try {
+				await ensure();
+			} catch (err) {
+				return { error: `engine host unreachable: ${errMsg(err)}` };
+			}
+			try {
+				return await sendMessage("engineRun", request);
+			} catch (err) {
+				ready = null;
+				return { error: `engine request failed: ${errMsg(err)}` };
+			}
+		},
+		async status() {
+			try {
+				await ensure();
+				return await sendMessage("engineHostStatus");
+			} catch (err) {
+				return {
+					state: "failed",
+					backend: null,
+					error: `engine host unreachable: ${errMsg(err)}`,
+				};
+			}
+		},
+	};
+}
+
+function firefoxClient(): EngineClient {
+	let host: EngineHost | null = null;
+	const get = (): EngineHost =>
+		(host ??= createEngineHost({
+			modelUrl: browser.runtime.getURL("/models/320n.onnx"),
+			wasmBase: `${browser.runtime.getURL("/")}ort/`,
+		}));
+	return {
+		run: (request) => get().run(request),
+		status: async () => get().status(),
+	};
+}
+
+const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+/**
+ * Public classify calls answer `Verdict`; on engine failure the background
+ * throws, which `sendMessage` surfaces as a rejection — the caller (WP2's
+ * content client) applies `settings.failClosed` to it.
+ */
+async function classify(engine: EngineClient, request: EngineRequest): Promise<Verdict> {
+	const result = await engine.run(request);
+	if (isEngineError(result)) throw new Error(result.error);
+	return result;
 }
 
 const emptyStats = (): TabStats => ({ total: 0, images: 0, videos: 0, byState: {} });
@@ -106,8 +205,33 @@ async function forwardMediaAction(
 export default defineBackground({
 	persistent: false,
 	main() {
+		const engine = browser.offscreen == null ? firefoxClient() : chromeClient();
+
 		onMessage("ping", () => ({ pong: true, ts: Date.now() }));
+		// Offscreen documents cannot touch chrome.storage, so the background
+		// reads settings itself and sends them along with each request.
+		onMessage("classifyImage", async ({ data }) =>
+			classify(engine, {
+				kind: "image",
+				url: data.url,
+				width: data.width,
+				height: data.height,
+				frameUrl: data.frameUrl,
+				settings: await getSettings(),
+			}),
+		);
+		onMessage("classifyFrame", async ({ data }) =>
+			classify(engine, {
+				kind: "frame",
+				dataUrl: data.dataUrl,
+				videoId: data.videoId,
+				ts: data.ts,
+				settings: await getSettings(),
+			}),
+		);
+		onMessage("engineStatus", () => engine.status());
 		onMessage("getTabStats", ({ data }) => getTabStats(data.tabId));
+
 		createContextMenus();
 		browser.contextMenus.onClicked.addListener((info, tab) => {
 			const action =
@@ -118,8 +242,14 @@ export default defineBackground({
 						: null;
 			if (action != null) void forwardMediaAction(action, info, tab);
 		});
-		ensureOffscreenDocument().catch((err) =>
-			console.error("[haramblur] offscreen creation failed", err),
-		);
+
+		if (browser.offscreen == null) {
+			// Firefox: create the in-process host eagerly so the model warms up now.
+			engine.status().catch(() => undefined);
+		} else {
+			ensureOffscreenDocument().catch((err) =>
+				console.error("[haramblur] offscreen creation failed", err),
+			);
+		}
 	},
 });
