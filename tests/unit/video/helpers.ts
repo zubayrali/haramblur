@@ -6,7 +6,7 @@ import type {
 	IntersectionObserverLike,
 	SamplerEnvironment,
 } from "../../../src/content/video/types";
-import type { Verdict } from "../../../src/shared/protocol";
+import type { Detection, Verdict } from "../../../src/shared/protocol";
 
 /** A controllable fake `<video>` element for Node tests. */
 export class FakeVideo {
@@ -109,11 +109,12 @@ export function verdict(
 	decision: "blur" | "clear",
 	score = 0.8,
 	reasons: number = decision === "blur" ? 1 : 0,
+	label: Detection["label"] = "FACE_FEMALE",
 ): Verdict {
 	return {
 		decision,
 		reasons: Array.from({ length: reasons }, () => ({
-			label: "FACE_FEMALE" as const,
+			label,
 			score,
 			box: [0, 0, 1, 1] as [number, number, number, number],
 		})),

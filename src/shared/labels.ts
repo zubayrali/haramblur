@@ -34,8 +34,18 @@ export type NudeNetLabel = (typeof NUDENET_LABELS)[number];
 export const NSFW_LABELS = ["NSFW_EXPLICIT", "NSFW_SUGGESTIVE"] as const;
 export type NsfwLabel = (typeof NSFW_LABELS)[number];
 
+/**
+ * Engine-synthesized labels that are not NudeNet classes. `FACE_PERSON` is a
+ * neutral face placeholder: emitted when a detector is confident a face is
+ * present but the gender classifier abstains. It suppresses NudeNet's noisy
+ * `FACE_FEMALE`/`FACE_MALE` on the same box (via the IoU filter) without
+ * asserting a gender — so it never blurs on its own.
+ */
+export const SYNTHETIC_LABELS = ["FACE_PERSON"] as const;
+export type SyntheticLabel = (typeof SYNTHETIC_LABELS)[number];
+
 /** Any label a Detection can carry. */
-export type DetectionLabel = NudeNetLabel | NsfwLabel;
+export type DetectionLabel = NudeNetLabel | NsfwLabel | SyntheticLabel;
 
 const set = (labels: readonly string[]): ReadonlySet<string> => new Set(labels);
 
@@ -98,3 +108,14 @@ export const LABEL_GROUPS = {
 	modesty: MODESTY_LABELS,
 	covered: COVERED_LABELS,
 } as const;
+
+/**
+ * All face-kind labels (gendered + neutral). Used by the video sampler's
+ * hysteresis: a blur verdict carried only by face labels is not
+ * "high-confidence" — gender flip-flops need the second agreeing frame.
+ */
+export const FACE_KIND_LABELS: ReadonlySet<string> = set([
+	"FACE_FEMALE",
+	"FACE_MALE",
+	"FACE_PERSON",
+]);

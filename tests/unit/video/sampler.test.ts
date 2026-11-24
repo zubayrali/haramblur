@@ -87,8 +87,15 @@ describe("applyVerdict hysteresis", () => {
 	});
 
 	it("blurs immediately on one high-confidence blur verdict", () => {
-		const next = applyVerdict(ctx([]), verdict("blur", 0.95));
+		const next = applyVerdict(ctx([]), verdict("blur", 0.95, 1, "FEMALE_BREAST_EXPOSED"));
 		expect(next.blurred).toBe(true);
+	});
+
+	it("does not instant-blur on a face-only high-score verdict", () => {
+		// Gender flip-flops are the main flicker source — face labels always
+		// wait for the second agreeing frame even at ≥0.9.
+		const next = applyVerdict(ctx([]), verdict("blur", 0.95));
+		expect(next.blurred).toBe(false);
 	});
 
 	it("stays blurred through one stray low-confidence clear verdict", () => {
@@ -113,11 +120,15 @@ describe("applyVerdict hysteresis", () => {
 });
 
 describe("isHighConfidence", () => {
-	it("blur verdict ≥0.9 is high confidence", () => {
-		expect(isHighConfidence(verdict("blur", 0.95))).toBe(true);
+	it("blur verdict ≥0.9 on a non-face label is high confidence", () => {
+		expect(isHighConfidence(verdict("blur", 0.95, 1, "FEMALE_BREAST_EXPOSED"))).toBe(true);
+	});
+	it("blur verdict ≥0.9 carried only by face labels is not", () => {
+		expect(isHighConfidence(verdict("blur", 0.95))).toBe(false);
+		expect(isHighConfidence(verdict("blur", 0.95, 1, "FACE_PERSON"))).toBe(false);
 	});
 	it("blur verdict <0.9 is not", () => {
-		expect(isHighConfidence(verdict("blur", 0.8))).toBe(false);
+		expect(isHighConfidence(verdict("blur", 0.8, 1, "FEMALE_BREAST_EXPOSED"))).toBe(false);
 	});
 	it("clear with zero detections is high confidence", () => {
 		expect(isHighConfidence(verdict("clear"))).toBe(true);

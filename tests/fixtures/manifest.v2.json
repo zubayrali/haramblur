@@ -55,6 +55,21 @@
 					"category": "male-portrait",
 					"expect": ["FACE_MALE"]
 				},
+				"man-bowtie-suit.jpg": {
+					"decision": "clear",
+					"category": "male-portrait",
+					"expect": ["FACE_MALE"]
+				},
+				"marines-10-star-social.jpg": {
+					"decision": "clear",
+					"category": "hard-negative",
+					"expect": ["FACE_MALE"]
+				},
+				"hand-holding-smartphone.jpg": {
+					"decision": "clear",
+					"category": "hard-negative",
+					"expect": []
+				},
 				"car-paris-1910.jpg": {
 					"decision": "clear",
 					"category": "hard-negative",
@@ -74,6 +89,16 @@
 					"decision": "clear",
 					"category": "other-negative",
 					"expect": []
+				},
+				"woman-headscarf.jpg": {
+					"decision": "blur",
+					"category": "female-portrait",
+					"expect": ["FACE_FEMALE"]
+				},
+				"bikini-kapalua.jpg": {
+					"decision": "blur",
+					"category": "suggestive",
+					"expect": ["FACE_FEMALE"]
 				}
 			}
 		},

@@ -39,7 +39,6 @@ import {
 	unletterboxBox,
 	unletterboxPoint,
 	YUNET_INPUT_SIZE,
-	type YuNetOutputs,
 } from "./yunet";
 
 export interface WorkerInitMessage {
@@ -390,7 +389,8 @@ async function infer(
 		// synthetics. Requires BOTH sessions — without FastFace there is no
 		// gender signal for YuNet boxes.
 		let yunetFaces: YuNetFaceNorm[] = [];
-		if (!detail && yunetSession != null && classifier != null) {
+		const yunetChecked = !detail && yunetSession != null && classifier != null;
+		if (yunetChecked) {
 			yunetFaces = await detectYuNetFaces(bitmap);
 		}
 		if (classifier != null) {
@@ -399,15 +399,19 @@ async function infer(
 				const g = await classifier(f.box, f.landmarks).catch(() => null);
 				if (g == null) continue;
 				const conf = Math.max(g.femaleProb, g.maleProb);
-				// Abstain on unsure gender — a misgendered synthetic is worse
-				// than no detection (dogs, car grilles, ambiguous faces).
-				if (conf < YUNET_GENDER_MIN_CONF) continue;
-				synthetics.push({
-					label: g.femaleProb >= g.maleProb ? "FACE_FEMALE" : "FACE_MALE",
-					score: f.score * conf,
-					box: f.box,
-					...(g.age != null ? { age: g.age } : {}),
-				});
+				if (conf >= YUNET_GENDER_MIN_CONF) {
+					synthetics.push({
+						label: g.femaleProb >= g.maleProb ? "FACE_FEMALE" : "FACE_MALE",
+						score: f.score * conf,
+						box: f.box,
+						...(g.age != null ? { age: g.age } : {}),
+					});
+				} else {
+					// Gender unverified: emit the neutral placeholder so the IoU
+					// filter below still suppresses NudeNet's noisy FACE_* on this
+					// box — without asserting one (same rule as refineFaceDetections).
+					synthetics.push({ label: "FACE_PERSON", score: f.score * conf, box: f.box });
+				}
 			}
 			if (synthetics.length > 0) {
 				detections = detections.filter(
@@ -417,15 +421,30 @@ async function infer(
 				);
 			}
 			detections = await refineFaceDetections(detections, classifier, bitmap.width, bitmap.height);
+			// NudeNet FACE_* labels that no YuNet face corroborates are usually
+			// mislabels (beards, hands, fabric reading as faces). When YuNet ran
+			// — even finding zero faces — demote them to the neutral placeholder.
+			if (yunetChecked) {
+				detections = detections.map((d) =>
+					FACE_LABELS.has(d.label) &&
+					d.label !== "FACE_PERSON" &&
+					!yunetFaces.some((f) => boxIou(f.box, d.box) > FACE_CLUSTER_IOU)
+						? { ...d, label: "FACE_PERSON" as Detection["label"] }
+						: d,
+				);
+			}
 			detections.push(...synthetics);
 		}
 		// Whole-image NSFW pass, last: it exists to catch suggestive/anime
 		// content NudeNet misses, so it only runs when the detections so far
-		// don't already decide `blur` (skipping saves ~35 ms on the common
-		// case). Detail tiles never run it — whole-image context was seen.
+		// don't already decide `blur` — UNLESS region blur is on, where an
+		// NSFW verdict's full-frame box still escalates to whole-element blur
+		// (a face-only verdict must not trap a bikini shot in region mode).
+		// Detail tiles never run it — whole-image context was seen.
 		if (!detail && nsfwSession != null) {
+			const alreadyBlur = settings != null && decide(detections, settings) === "blur";
 			// Missing settings (tests/old hosts) → run it: can't prove blur.
-			if (settings == null || decide(detections, settings) !== "blur") {
+			if (!alreadyBlur || settings?.regionBlur !== false) {
 				const nsfw = await classifyNsfw(bitmap);
 				if (nsfw != null) detections.push(nsfw);
 			}

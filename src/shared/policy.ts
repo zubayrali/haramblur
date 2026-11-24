@@ -42,6 +42,51 @@ const FLOOR_LABELS: ReadonlySet<string> = new Set([
 	"MALE_GENITALIA_EXPOSED",
 ]);
 
+/**
+ * Breast/buttocks/anus classes fire on skin-tone textures — folded lapels,
+ * hands, chins — at ~0.3–0.45 (observed live on YouTube thumbnails). They
+ * require a margin above the exposed threshold rather than a flat floor, so
+ * `strictness` still scales them at both ends.
+ */
+const NOISY_EXPOSED_MARGIN = 0.2;
+const NOISY_EXPOSED_LABELS: ReadonlySet<string> = new Set([
+	"FEMALE_BREAST_EXPOSED",
+	"BUTTOCKS_EXPOSED",
+	"ANUS_EXPOSED",
+]);
+
+/**
+ * Male-context suppression: a confident `FACE_MALE` makes a low-confidence
+ * `FEMALE_BREAST_EXPOSED` directly below his chin anatomically implausible —
+ * it's his own lapel/shirt/skin, not a woman. Only the torso zone counts
+ * (a woman beside him keeps her own geometry), and only below
+ * `MALE_CONTEXT_MAX_TARGET_SCORE` — strong detections always stand.
+ */
+const MALE_CONTEXT_MIN_SCORE = 0.6;
+const MALE_CONTEXT_MAX_TARGET_SCORE = 0.75;
+const MALE_TORSO_LABELS: ReadonlySet<string> = new Set(["FEMALE_BREAST_EXPOSED"]);
+
+function suppressedByMaleContext(d: Detection, all: readonly Detection[]): boolean {
+	if (!MALE_TORSO_LABELS.has(d.label) || d.score >= MALE_CONTEXT_MAX_TARGET_SCORE) {
+		return false;
+	}
+	const [dx, dy, dw] = d.box;
+	const cx = dx + dw / 2;
+	for (const m of all) {
+		if (m.label !== "FACE_MALE" || m.score < MALE_CONTEXT_MIN_SCORE) continue;
+		const [mx, my, mw, mh] = m.box;
+		const inX = cx >= mx - mw * 0.35 && cx <= mx + mw * 1.35;
+		const torsoY = dy >= my + mh * 0.6 && dy <= my + mh * 2.6;
+		if (inX && torsoY) return true;
+	}
+	return false;
+}
+
+/** Detections that count toward a verdict — context-suppressed ones don't. */
+function effectiveDetections(detections: readonly Detection[]): readonly Detection[] {
+	return detections.filter((d) => !suppressedByMaleContext(d, detections));
+}
+
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
@@ -88,8 +133,13 @@ export function nsfwThreshold(strictness: number): number {
 export function blurThresholdFor(label: DetectionLabel, settings: PolicySettings): number | null {
 	if (NSFW_LABEL_SET.has(label)) return nsfwThreshold(settings.strictness);
 	if (LABEL_GROUPS.coreExposed.has(label)) {
-		const floor = FLOOR_LABELS.has(label) ? LABEL_SCORE_FLOOR : 0;
-		return Math.max(exposedThreshold(settings.strictness), floor);
+		if (FLOOR_LABELS.has(label)) {
+			return Math.max(exposedThreshold(settings.strictness), LABEL_SCORE_FLOOR);
+		}
+		if (NOISY_EXPOSED_LABELS.has(label)) {
+			return Math.min(1, exposedThreshold(settings.strictness) + NOISY_EXPOSED_MARGIN);
+		}
+		return exposedThreshold(settings.strictness);
 	}
 	if (LABEL_GROUPS.modesty.has(label)) {
 		if (!settings.strictModesty) return null;
@@ -110,7 +160,7 @@ export function blurCapableDetections(
 	detections: readonly Detection[],
 	settings: PolicySettings,
 ): Detection[] {
-	return detections.filter((d) => {
+	return effectiveDetections(detections).filter((d) => {
 		if (isChildFace(d, settings)) return false;
 		const thr = blurThresholdFor(d.label, settings);
 		return thr != null && d.score >= thr;
@@ -122,7 +172,7 @@ export function decide(
 	settings: PolicySettings,
 ): VerdictDecision {
 	if (!settings.status) return "clear";
-	for (const d of detections) {
+	for (const d of effectiveDetections(detections)) {
 		if (isChildFace(d, settings)) continue;
 		const thr = blurThresholdFor(d.label, settings);
 		if (thr != null && d.score >= thr) return "blur";

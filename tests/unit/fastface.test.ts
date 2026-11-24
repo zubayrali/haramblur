@@ -46,11 +46,21 @@ describe("refineFaceDetections", () => {
 		expect(out).toEqual([{ ...det("FACE_FEMALE", 0.8), age: 30 }]);
 	});
 
-	it("passes detections through untouched when FastFace is unsure", async () => {
-		const unsure = classifier(FACE_RELABEL_MIN_CONF - 0.01);
-		const input = [det("FACE_FEMALE", 0.8), det("BELLY_EXPOSED", 0.5)];
-		const out = await refineFaceDetections(input, unsure, SRC_W, SRC_H);
-		expect(out).toEqual(input);
+	it("collapses to neutral FACE_PERSON whenever FastFace is not confident", async () => {
+		// The male→female FP channel: any sub-RELABEL confidence — weak lean
+		// or near coin-flip — means the face is real but its gender isn't
+		// verified, so NudeNet's gendered label can't stand either.
+		const weak = classifier(FACE_RELABEL_MIN_CONF - 0.01);
+		const out = await refineFaceDetections([det("FACE_FEMALE", 0.8)], weak, SRC_W, SRC_H);
+		expect(out).toEqual([{ ...det("FACE_PERSON", 0.8), age: 30 }]);
+		const coinFlip = classifier(0.5);
+		const out2 = await refineFaceDetections(
+			[det("FACE_FEMALE", 0.5), det("BELLY_EXPOSED", 0.5)],
+			coinFlip,
+			SRC_W,
+			SRC_H,
+		);
+		expect(out2).toEqual([{ ...det("FACE_PERSON", 0.5), age: 30 }, det("BELLY_EXPOSED", 0.5)]);
 	});
 
 	it("collapses dual-gender labels on one face into a single corrected detection", async () => {
