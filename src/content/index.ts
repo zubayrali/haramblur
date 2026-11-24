@@ -1,6 +1,7 @@
 import { decide } from "../shared/policy";
 import { onMessage, type Verdict } from "../shared/protocol";
 import { getSettings, type Settings, watchSettings } from "../shared/settings-store";
+import { isAllowlisted } from "../shared/site";
 import {
 	applyBlurStyles,
 	blurOnError,
@@ -31,7 +32,7 @@ import {
 	setRegionSettings,
 	syncRegionBlur,
 } from "./region";
-import { isAllowlisted, reasonsFromJson, reasonsToJson } from "./site";
+import { reasonsFromJson, reasonsToJson } from "./site";
 import { createVideoManager, type VideoManager } from "./video";
 
 /**

@@ -50,6 +50,12 @@
 	"blurVideos": {
 		"message": "مقاطع الفيديو"
 	},
+	"regionBlur": {
+		"message": "ضبابية المناطق"
+	},
+	"regionBlurHint": {
+		"message": "تشويش المناطق المكتشفة فقط بدلاً من الصورة كاملة"
+	},
 	"facesToBlur": {
 		"message": "الوجوه التي يجب تشويشها"
 	},
@@ -58,6 +64,18 @@
 	},
 	"blurFemale": {
 		"message": "الإناث"
+	},
+	"strictModesty": {
+		"message": "حياء صارم"
+	},
+	"strictModestyHint": {
+		"message": "ضمّن البطن والإبطين والقدمين والصدر المغطى"
+	},
+	"skipChildren": {
+		"message": "تخطي الأطفال"
+	},
+	"skipChildrenHint": {
+		"message": "لا تُشوّش الوجوه المقدَّرة بأقل من 15 عامًا"
 	},
 	"unblurOnHover": {
 		"message": "إلغاء التشويش عند المرور بالمؤشر"
@@ -125,6 +143,9 @@
 	},
 	"engineReady": {
 		"message": "جاهز"
+	},
+	"engineActive": {
+		"message": "نشط"
 	},
 	"engineDegraded": {
 		"message": "أداء منخفض"
@@ -203,6 +224,9 @@
 	},
 	"feedbackLead": {
 		"message": "يسعدنا سماع ملاحظاتك عبر"
+	},
+	"feedbackIssues": {
+		"message": "مشكلات GitHub"
 	},
 	"feedbackForm": {
 		"message": "الاستمارة"

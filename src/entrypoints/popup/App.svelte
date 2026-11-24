@@ -4,6 +4,7 @@
 	import { type I18nKey, t } from "../../shared/i18n";
 	import { sendMessage } from "../../shared/protocol";
 	import type { EngineState, EngineStatus, TabStats } from "../../shared/protocol";
+	import { isAllowlisted } from "../../shared/site";
 	import { getSettings, settings, watchSettings } from "../../shared/settings-store";
 	import type { Settings } from "../../shared/settings";
 	import Toggle from "../../ui/Toggle.svelte";
@@ -14,15 +15,33 @@
 	let stats = $state<TabStats | null>(null);
 	let siteHost = $state<string | null>(null);
 
-	const siteDisabled = $derived(s != null && siteHost != null && s.allowlist.includes(siteHost));
+	const siteDisabled = $derived(
+		s != null && siteHost != null && isAllowlisted(siteHost, s.allowlist),
+	);
 	const ENGINE_KEYS: Record<EngineState, I18nKey> = {
 		booting: "engineBooting",
-		ready: "engineReady",
+		ready: "engineActive",
 		degraded: "engineDegraded",
 		failed: "engineFailed",
 	};
 	const engineStateKey = $derived(
 		engine == null ? "engineUnavailable" : ENGINE_KEYS[engine.state],
+	);
+	// "ready" means inference works — name the backend. "degraded" (WASM
+	// fallback or partial session loss) and "failed" keep the warning colors.
+	const engineTone = $derived(
+		engine == null || engine.state === "booting"
+			? "text-gray-500"
+			: engine.state === "ready"
+				? engine.backend === "webgpu"
+					? "text-green-600"
+					: "text-sky-600"
+				: engine.state === "failed"
+					? "text-red-600"
+					: "text-amber-600",
+	);
+	const backendLabel = $derived(
+		engine?.backend === "webgpu" ? "WebGPU" : engine?.backend === "wasm" ? "WASM" : null,
 	);
 
 	async function persist(patch: Partial<Settings>) {
@@ -33,9 +52,14 @@
 	}
 
 	function toggleSite(enabled: boolean) {
-		if (siteHost == null || s == null) return;
-		const allowlist = toggleAllowlistHost(s.allowlist, siteHost);
-		if (enabled !== allowlist.includes(siteHost)) return;
+		const host = siteHost;
+		if (host == null || s == null) return;
+		// Match isAllowlisted semantics: enabling removes every entry that
+		// covers this host (a parent domain entry would keep it disabled);
+		// disabling adds the host itself.
+		const allowlist = enabled
+			? s.allowlist.filter((entry) => !isAllowlisted(host, [entry]))
+			: toggleAllowlistHost(s.allowlist, host);
 		void persist({ allowlist });
 	}
 
@@ -103,15 +127,8 @@
 		<section class="mt-3 rounded-md bg-gray-50 p-2 text-xs dark:bg-gray-800" data-testid="status">
 			<div class="flex justify-between">
 				<span class="font-medium text-gray-600 dark:text-gray-300">{t("engineStatus")}</span>
-				<span
-					data-testid="engine-state"
-					class="font-semibold {engine?.state === 'ready'
-						? 'text-emerald-600'
-						: engine?.state === 'failed'
-							? 'text-red-600'
-							: 'text-amber-600'}"
-				>
-					{t(engineStateKey)}{engine?.backend ? ` · ${engine.backend}` : ""}
+				<span data-testid="engine-state" class="font-semibold {engineTone}">
+					{t(engineStateKey)}{backendLabel ? ` · ${backendLabel}` : ""}
 				</span>
 			</div>
 			<div class="mt-1 flex justify-between">
