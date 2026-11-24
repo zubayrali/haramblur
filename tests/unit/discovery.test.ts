@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	candidateFor,
 	extractBackgroundImageUrl,
@@ -175,5 +175,62 @@ describe("mediaElements", () => {
 		const img = document.createElement("img");
 		img.src = "https://example.com/a.jpg";
 		expect([...mediaElements(img)]).toContain(img);
+	});
+});
+
+describe("shadow DOM piercing", () => {
+	it("shadowHosts yields open shadow hosts, recursing into nested roots", async () => {
+		const { shadowHosts } = await import("../../src/content/discovery");
+		document.body.innerHTML = `<div id="outer"></div>`;
+		const outer = document.getElementById("outer") as HTMLElement;
+		const sr1 = outer.attachShadow({ mode: "open" });
+		sr1.innerHTML = `<section id="inner-host"></section>`;
+		const inner = sr1.getElementById("inner-host") as HTMLElement;
+		inner.attachShadow({ mode: "open" });
+		const hosts = [...shadowHosts(document.body)];
+		expect(hosts).toContain(outer);
+		expect(hosts).toContain(inner);
+	});
+
+	it("deepQueryAll finds matches inside shadow roots", async () => {
+		const { deepQueryAll } = await import("../../src/content/discovery");
+		document.body.innerHTML = `<div id="host"></div><img id="light" src="https://x.test/l.jpg">`;
+		const host = document.getElementById("host") as HTMLElement;
+		const sr = host.attachShadow({ mode: "open" });
+		sr.innerHTML = `<img id="deep" src="https://x.test/d.jpg">`;
+		const found = [...deepQueryAll<HTMLElement>(document, "img")].map((el) => el.id);
+		expect(found).toContain("light");
+		expect(found).toContain("deep");
+	});
+
+	it("startDiscovery emits candidates for media inside shadow roots", async () => {
+		const { startDiscovery } = await import("../../src/content/discovery");
+		vi.stubGlobal(
+			"IntersectionObserver",
+			class {
+				observe() {}
+				unobserve() {}
+				disconnect() {}
+			},
+		);
+		document.body.innerHTML = `<div id="host"></div>`;
+		const host = document.getElementById("host") as HTMLElement;
+		const sr = host.attachShadow({ mode: "open" });
+		sr.innerHTML = `<img src="https://x.test/shadow.jpg">`;
+		const seen: string[] = [];
+		const handle = startDiscovery(document, {
+			onCandidate: (c) => seen.push(`${c.kind}:${c.url}`),
+			onVisible: () => {},
+		});
+		expect(seen).toContain("image:https://x.test/shadow.jpg");
+		// Mutations inside the shadow root are observed too.
+		const img2 = document.createElement("img");
+		img2.src = "https://x.test/later.jpg";
+		sr.appendChild(img2);
+		await vi.waitFor(() => {
+			expect(seen).toContain("image:https://x.test/later.jpg");
+		});
+		handle.stop();
+		vi.unstubAllGlobals();
 	});
 });

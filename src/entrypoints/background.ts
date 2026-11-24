@@ -133,12 +133,26 @@ const emptyStats = (): TabStats => ({ total: 0, images: 0, videos: 0, byState: {
 /** Runs inside each page frame; must stay free of outer-scope references. */
 function countFrameMedia(): TabStats {
 	const stats: TabStats = { total: 0, images: 0, videos: 0, byState: {} };
-	for (const el of document.querySelectorAll("[data-hb-state]")) {
-		const state = el.getAttribute("data-hb-state") ?? "unknown";
-		stats.byState[state] = (stats.byState[state] ?? 0) + 1;
-		stats.total += 1;
-		if (el.tagName === "IMG") stats.images += 1;
-		else if (el.tagName === "VIDEO") stats.videos += 1;
+	// querySelectorAll can't pierce shadow roots — media inside shadow DOM
+	// (e.g. YouTube thumbnails) needs an explicit walk.
+	const stack: ParentNode[] = [document];
+	const seenRoots = new Set<ParentNode>([document]);
+	while (stack.length > 0) {
+		const root = stack.pop() as ParentNode;
+		for (const el of root.querySelectorAll("[data-hb-state]")) {
+			const state = el.getAttribute("data-hb-state") ?? "unknown";
+			stats.byState[state] = (stats.byState[state] ?? 0) + 1;
+			stats.total += 1;
+			if (el.tagName === "IMG") stats.images += 1;
+			else if (el.tagName === "VIDEO") stats.videos += 1;
+		}
+		for (const el of root.querySelectorAll("*")) {
+			const sr = el.shadowRoot;
+			if (sr != null && !seenRoots.has(sr)) {
+				seenRoots.add(sr);
+				stack.push(sr);
+			}
+		}
 	}
 	return stats;
 }

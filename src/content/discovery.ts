@@ -204,6 +204,53 @@ export function* mediaElements(root: ParentNode): Generator<HTMLElement> {
 	}
 }
 
+/**
+ * Every element under `root` (inclusive) that hosts an open shadow root,
+ * recursing into nested shadow trees. YouTube renders thumbnails inside
+ * `yt-img-shadow`/`yt-image` shadow roots — `querySelectorAll` alone never
+ * sees them. Closed roots are unreachable by design and skipped.
+ */
+export function* shadowHosts(root: ParentNode): Generator<HTMLElement> {
+	const seen = new Set<Element>();
+	const stack: ParentNode[] = [root];
+	while (stack.length > 0) {
+		const r = stack.pop() as ParentNode;
+		const self = r instanceof Element ? r : null;
+		if (self?.shadowRoot != null && !seen.has(self)) {
+			seen.add(self);
+			yield self as HTMLElement;
+			stack.push(self.shadowRoot);
+		}
+		for (const el of r.querySelectorAll("*")) {
+			if (el.shadowRoot != null && !seen.has(el)) {
+				seen.add(el);
+				yield el as HTMLElement;
+				stack.push(el.shadowRoot as unknown as ParentNode);
+			}
+		}
+	}
+}
+
+/** `selector` matches in light DOM and inside every open shadow root below `root`. */
+export function* deepQueryAll<T extends Element = Element>(
+	root: ParentNode,
+	selector: string,
+): Generator<T> {
+	const stack: ParentNode[] = [root];
+	const seenRoots = new Set<ParentNode>([root]);
+	while (stack.length > 0) {
+		const r = stack.pop() as ParentNode;
+		for (const el of r.querySelectorAll(selector)) yield el as T;
+		for (const el of r.querySelectorAll("*")) {
+			const sr = el.shadowRoot;
+			if (sr != null && !seenRoots.has(sr)) {
+				seenRoots.add(sr);
+				stack.push(sr);
+			}
+		}
+	}
+}
+
 export function startDiscovery(root: Document, handlers: DiscoveryHandlers): DiscoveryHandle {
 	const visible = new WeakSet<Element>();
 	const io = new IntersectionObserver(
@@ -230,10 +277,37 @@ export function startDiscovery(root: Document, handlers: DiscoveryHandlers): Dis
 		handlers.onCandidate(candidate);
 	}
 
-	function scan(node: Node): void {
-		if (node instanceof Element || node instanceof Document) {
-			for (const el of mediaElements(node)) emit(el);
+	const OBSERVE_OPTS: MutationObserverInit = {
+		childList: true,
+		subtree: true,
+		attributes: true,
+		attributeFilter: OBSERVED_ATTRIBUTES,
+	};
+	// Shadow roots already wired to the observer — YouTube lazily populates
+	// `yt-img-shadow` content, so roots must be observed, not just scanned once.
+	const observedRoots = new WeakSet<ParentNode>();
+
+	function isScannable(node: Node): node is ParentNode {
+		// Element, Document, and ShadowRoot (a DocumentFragment) all expose
+		// querySelectorAll; Text/comment nodes do not.
+		return node instanceof Element || node instanceof Document || node instanceof DocumentFragment;
+	}
+
+	function observeShadowHosts(node: Node): void {
+		if (!isScannable(node)) return;
+		for (const host of shadowHosts(node)) {
+			const sr = host.shadowRoot;
+			if (sr == null || observedRoots.has(sr)) continue;
+			observedRoots.add(sr);
+			mo.observe(sr, OBSERVE_OPTS);
+			scan(sr);
 		}
+	}
+
+	function scan(node: Node): void {
+		if (!isScannable(node)) return;
+		for (const el of mediaElements(node)) emit(el);
+		observeShadowHosts(node);
 	}
 
 	const mo = new MutationObserver((mutations) => {
