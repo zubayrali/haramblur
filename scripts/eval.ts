@@ -74,6 +74,12 @@ function thresholdArg(): number {
 	return Number.isFinite(v) ? v : 0.3;
 }
 
+/** `--verbose` prints every detection (score + box) and the letterbox scale. */
+const VERBOSE = process.argv.includes("--verbose");
+
+/** Letterbox scale `min(input/w, input/h)` matching src/engine/nudenet.ts. */
+const letterboxK = (w: number, h: number) => Math.min(320 / w, 320 / h);
+
 function serveFixtures(): Promise<{ url: string; close: () => Promise<void> }> {
 	const server = createServer((req, res) => {
 		const name = decodeURIComponent((req.url ?? "/").split("?")[0]?.replace(/^\/+/, "") ?? "/");
@@ -200,6 +206,17 @@ async function main(): Promise<void> {
 			console.log(
 				`${name}: ${verdict.decision} (expected ${entry.decision}${decisionOk ? "" : " ✗"}) [${top}]`,
 			);
+			if (VERBOSE) {
+				const k = letterboxK(dims.width, dims.height);
+				const letterboxed = `${Math.round(dims.width * k)}x${Math.round(dims.height * k)}`;
+				console.log(
+					`    src=${dims.width}x${dims.height} letterbox=${letterboxed} (k=${k.toFixed(3)}) ms=${verdict.ms ?? "?"}`,
+				);
+				for (const d of verdict.reasons ?? []) {
+					const [x, y, w, h] = d.box.map((v) => v.toFixed(2));
+					console.log(`    ${d.label}@${d.score.toFixed(3)} box=[${x},${y},${w},${h}]`);
+				}
+			}
 		}
 
 		console.log(`\ndecision accuracy: ${correctDecisions}/${Object.keys(manifest.files).length}`);

@@ -18,6 +18,14 @@ export const NMS_IOU = 0.45;
  * the policy can produce (strictness 1 → exposed 0.15, faces 0.2).
  */
 export const SCORE_FLOOR = 0.1;
+/**
+ * Detail pass (WP7): when the whole-image pass finds nothing the policy would
+ * blur, a tiled second pass re-runs the model on overlapping crops so faces
+ * letterboxed below the model's floor (~20 input px) land at detectable size.
+ * Grid grows with source size, capped at `MAX_TILES_PER_AXIS`² tiles.
+ */
+export const TILE_OVERLAP = 0.25;
+export const MAX_TILES_PER_AXIS = 3;
 
 export interface Letterbox {
 	/** Uniform scale `min(input/w, input/h)`. */
@@ -31,6 +39,81 @@ export interface Letterbox {
 export function letterboxSize(srcW: number, srcH: number, input = INPUT_SIZE): Letterbox {
 	const k = Math.min(input / srcW, input / srcH);
 	return { k, dw: Math.round(srcW * k), dh: Math.round(srcH * k) };
+}
+
+/** A source-pixel rectangle covered by one detail-pass tile. */
+export interface TileRect {
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+}
+
+const clampInt = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Math.round(n)));
+
+/** Positions of `n` tiles covering `[0, len]` with `overlap` fractional overlap. */
+function tileAxis(len: number, n: number, overlap: number): TileRect[] {
+	if (n <= 1) return [{ x: 0, y: 0, w: len, h: 0 }];
+	const span = (len * (1 + overlap * (n - 1))) / n;
+	const step = (len - span) / (n - 1);
+	const rects: TileRect[] = [];
+	for (let i = 0; i < n; i++) {
+		const x = clampInt(i * step, 0, Math.max(0, len - span));
+		rects.push({ x, y: 0, w: clampInt(Math.min(span, len - x), 1, len), h: 0 });
+	}
+	return rects;
+}
+
+/**
+ * Overlapping source rects for the detail pass. Tile count per axis is
+ * `ceil(dim × 1.5 / input)` capped at `MAX_TILES_PER_AXIS`, so tiles zoom in
+ * ~1.5–4.5× over the whole-image scale while staying bounded (≤ 9 model calls
+ * per detail pass). Empty for images that fit the input on both axes.
+ */
+export function tileRects(
+	srcW: number,
+	srcH: number,
+	input = INPUT_SIZE,
+	overlap = TILE_OVERLAP,
+): TileRect[] {
+	// `1.5×` density: a 480px source gets 3 tiles/axis (~240px each → ~1.33
+	// zoom vs the 0.67 whole-image scale) instead of two ~300px tiles (~1.07),
+	// which barely helps faces already near the model floor.
+	const cols = clampInt(Math.ceil((srcW * 1.5) / input), 1, MAX_TILES_PER_AXIS);
+	const rows = clampInt(Math.ceil((srcH * 1.5) / input), 1, MAX_TILES_PER_AXIS);
+	if (cols === 1 && rows === 1) return [];
+	const xs = tileAxis(srcW, cols, overlap);
+	const ys = tileAxis(srcH, rows, overlap);
+	const rects: TileRect[] = [];
+	for (const ry of ys) {
+		for (const rx of xs) {
+			rects.push({ x: rx.x, y: ry.x, w: rx.w, h: ry.w });
+		}
+	}
+	return rects;
+}
+
+/**
+ * Merge detections from several passes. Boxes are already normalized over the
+ * same source; same-class pairs overlapping above `NMS_IOU` keep the higher
+ * score (e.g. a face seen in two adjacent tiles). Returns score-descending.
+ */
+export function mergeDetections(...lists: readonly Detection[][]): Detection[] {
+	const candidates = lists.flat().flatMap((d) => {
+		const cls = NUDENET_LABELS.indexOf(d.label);
+		if (cls < 0) return [];
+		const [x, y, w, h] = d.box;
+		return [{ cls, score: d.score, x0: x, y0: y, x1: x + w, y1: y + h }];
+	});
+	return nmsPerClass(candidates, NMS_IOU)
+		.map(
+			(c): Detection => ({
+				label: NUDENET_LABELS[c.cls]!,
+				score: c.score,
+				box: [c.x0, c.y0, c.x1 - c.x0, c.y1 - c.y0],
+			}),
+		)
+		.sort((a, b) => b.score - a.score);
 }
 
 /**
