@@ -12,11 +12,19 @@ export interface SessionOptions {
 	wasmBase: string;
 	/** Absolute extension URL of `models/320n.onnx`. */
 	modelUrl: string;
+	/** Absolute extension URL of `models/fastface-small-112.onnx` (optional). */
+	faceModelUrl?: string;
 }
 
 export interface EngineSession {
 	backend: EngineBackend;
 	session: ort.InferenceSession;
+	/**
+	 * FastFace gender classifier session, always WASM: the model is tiny
+	 * (~5 ms/inference) and a second WebGPU session would double the wedged-EP
+	 * surface for no measurable gain.
+	 */
+	faceSession: ort.InferenceSession | null;
 }
 
 // Extension pages report `crossOriginIsolated === true`, so the threaded WASM
@@ -86,6 +94,7 @@ async function requestGpuAdapter(): Promise<unknown> {
 export async function createSession({
 	wasmBase,
 	modelUrl,
+	faceModelUrl,
 }: SessionOptions): Promise<EngineSession> {
 	// Absolute extension URL — a relative path would resolve against the ort
 	// module's own directory and 404 (docs/ENGINE_NOTES.md).
@@ -93,22 +102,45 @@ export async function createSession({
 	ort.env.wasm.numThreads = WASM_THREADS;
 	ort.env.logLevel = "warning";
 
+	let backend: EngineBackend = "wasm";
+	let session: ort.InferenceSession;
 	if ((await requestGpuAdapter()) != null) {
 		try {
-			const session = await ort.InferenceSession.create(modelUrl, {
+			const candidate = await ort.InferenceSession.create(modelUrl, {
 				executionProviders: ["webgpu"],
 			});
-			if (await probeSession(session)) {
-				return { backend: "webgpu", session };
+			if (await probeSession(candidate)) {
+				backend = "webgpu";
+				session = candidate;
+			} else {
+				console.warn("[haramblur] WebGPU probe failed, falling back to WASM");
+				await candidate.release();
+				session = await ort.InferenceSession.create(modelUrl, {
+					executionProviders: ["wasm"],
+				});
 			}
-			console.warn("[haramblur] WebGPU probe failed, falling back to WASM");
-			await session.release();
 		} catch (err) {
 			console.warn("[haramblur] WebGPU session failed, falling back to WASM:", err);
+			session = await ort.InferenceSession.create(modelUrl, {
+				executionProviders: ["wasm"],
+			});
+		}
+	} else {
+		session = await ort.InferenceSession.create(modelUrl, {
+			executionProviders: ["wasm"],
+		});
+	}
+
+	let faceSession: ort.InferenceSession | null = null;
+	if (faceModelUrl != null) {
+		try {
+			faceSession = await ort.InferenceSession.create(faceModelUrl, {
+				executionProviders: ["wasm"],
+			});
+		} catch (err) {
+			// Missing/corrupt model must not take the detector down with it.
+			console.warn("[haramblur] face gender model unavailable:", err);
 		}
 	}
-	const session = await ort.InferenceSession.create(modelUrl, {
-		executionProviders: ["wasm"],
-	});
-	return { backend: "wasm", session };
+	return { backend, session, faceSession };
 }
