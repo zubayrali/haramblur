@@ -8,10 +8,10 @@ import {
 import { asVideo, FakeVideo, makeHarness } from "./helpers";
 
 describe("scaledSize", () => {
-	it("caps the long edge at 320 and keeps aspect ratio", () => {
-		expect(scaledSize(640, 360)).toEqual({ width: MAX_FRAME_EDGE, height: 180 });
-		expect(scaledSize(360, 640)).toEqual({ width: 180, height: MAX_FRAME_EDGE });
-		expect(scaledSize(1280, 720)).toEqual({ width: 320, height: 180 });
+	it("caps the long edge at MAX_FRAME_EDGE and keeps aspect ratio", () => {
+		expect(scaledSize(640, 360)).toEqual({ width: MAX_FRAME_EDGE, height: 270 });
+		expect(scaledSize(360, 640)).toEqual({ width: 270, height: MAX_FRAME_EDGE });
+		expect(scaledSize(1280, 720)).toEqual({ width: 480, height: 270 });
 	});
 	it("does not upscale small videos", () => {
 		expect(scaledSize(100, 50)).toEqual({ width: 100, height: 50 });
@@ -48,14 +48,15 @@ describe("captureFrame", () => {
 		expect(await captureFrame(asVideo(v), h.env)).toBeNull();
 	});
 
-	it("exports a PNG data URL and a hash", async () => {
+	it("exports a frame data URL and a hash", async () => {
 		const h = makeHarness();
 		const v = new FakeVideo();
 		const frame = await captureFrame(asVideo(v), h.env);
 		expect(frame).not.toBeNull();
-		expect(frame?.dataUrl.startsWith("data:image/png")).toBe(true);
-		expect(frame?.width).toBe(320);
-		expect(frame?.height).toBe(180);
+		// The fake canvas can't encode WebP, so the PNG fallback path runs.
+		expect(frame?.dataUrl.startsWith("data:image/")).toBe(true);
+		expect(frame?.width).toBe(480);
+		expect(frame?.height).toBe(270);
 		expect(frame?.hash).toHaveLength(256);
 		expect(frame?.ts).toBe(v.currentTime);
 	});

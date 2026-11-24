@@ -28,6 +28,8 @@ export const settings = storage.defineItem<Settings>(SETTINGS_KEY, {
 		2: (oldValue: LegacySettings) => migrateLegacySettings(oldValue),
 		// v2 → v3: fill in settings added after the rewrite shipped.
 		3: (oldValue: Settings) => ({ ...DEFAULT_SETTINGS, ...oldValue }),
+		// v3 → v4: fill in regionBlur (and any other post-v3 additions).
+		4: (oldValue: Settings) => ({ ...DEFAULT_SETTINGS, ...oldValue }),
 	},
 });
 

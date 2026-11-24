@@ -1,9 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-	MAX_CONCURRENT_VIDEOS,
-	REVEAL_DELAY_MS,
-	VideoManager,
-} from "../../../src/content/video/manager";
+import { MAX_CONCURRENT_VIDEOS, VideoManager } from "../../../src/content/video/manager";
 import type { Settings } from "../../../src/shared/settings";
 import { DEFAULT_SETTINGS } from "../../../src/shared/settings";
 import { asVideo, FakeVideo, makeHarness, verdict } from "./helpers";
@@ -84,13 +80,22 @@ describe("VideoManager", () => {
 		expect(manager.size).toBe(0);
 	});
 
-	it("blurs immediately when blurryStartMode is on", async () => {
+	it("blurs while pending only when blurryStartMode is on", async () => {
 		const { manager } = await makeManager({ blurryStartMode: true });
 		const v = new FakeVideo();
 		v.paused = false;
 		manager.observe(asVideo(v));
-		expect(v.dataset.hbState).toBe("processing");
-		expect(v.style.filter).toContain("blur(");
+		expect(v.dataset.hbState).toBe("pending");
+		expect(v.dataset.hbBlur).toBe("1");
+	});
+
+	it("does not blur while pending when blurryStartMode is off", async () => {
+		const { manager } = await makeManager({ blurryStartMode: false });
+		const v = new FakeVideo();
+		v.paused = false;
+		manager.observe(asVideo(v));
+		expect(v.dataset.hbState).toBe("pending");
+		expect(v.dataset.hbBlur).toBeUndefined();
 	});
 
 	it("applies blur after two agreeing blur verdicts", async () => {
@@ -102,14 +107,13 @@ describe("VideoManager", () => {
 		// First sample
 		h.pumpFrames();
 		await vi.waitFor(() => expect(h.classifyFrame).toHaveBeenCalledTimes(1));
-		expect(v.dataset.hbState).not.toBe("blurred");
+		expect(v.dataset.hbState).not.toBe("blur");
 		// Second sample (agreeing verdict → flip)
 		h.advance(600);
 		v.currentTime += 0.5;
 		h.pumpFrames();
-		await vi.waitFor(() => expect(v.dataset.hbState).toBe("blurred"));
-		expect(v.style.filter).toContain("blur(20px)");
-		expect(v.style.filter).toContain("grayscale(1)");
+		await vi.waitFor(() => expect(v.dataset.hbState).toBe("blur"));
+		expect(v.dataset.hbBlur).toBe("1");
 		expect(v.dataset.hbReasons).toContain("FACE_FEMALE");
 	});
 
@@ -121,10 +125,10 @@ describe("VideoManager", () => {
 		manager.observe(asVideo(v));
 		h.pumpFrames();
 		await vi.waitFor(() => expect(v.dataset.hbState).toBe("error"));
-		expect(v.style.filter).toContain("blur(");
+		expect(v.dataset.hbBlur).toBe("1");
 	});
 
-	it("clears on classify error when failClosed is off", async () => {
+	it("unblurs but keeps error state on classify error when failClosed is off", async () => {
 		const { manager, h } = await makeManager({ failClosed: false });
 		h.classifyFrame.mockRejectedValue(new Error("engine down"));
 		const v = new FakeVideo();
@@ -132,37 +136,41 @@ describe("VideoManager", () => {
 		manager.observe(asVideo(v));
 		h.pumpFrames();
 		await vi.waitFor(() => expect(h.classifyFrame).toHaveBeenCalled());
-		expect(v.dataset.hbState).toBe("clear");
-		expect(v.style.filter).toBe("");
+		expect(v.dataset.hbState).toBe("error");
+		expect(v.dataset.hbBlur).toBeUndefined();
 	});
 
-	it("reveals a blurred video on hover only when unblurVideos is on", async () => {
+	it("reveals a blurred video on click and stays revealed", async () => {
 		const { manager, h } = await makeManager({ unblurVideos: true });
 		h.classifyFrame.mockResolvedValue(verdict("blur", 0.95)); // high confidence → instant blur
 		const v = new FakeVideo();
 		v.paused = false;
 		manager.observe(asVideo(v));
 		h.pumpFrames();
-		await vi.waitFor(() => expect(v.dataset.hbState).toBe("blurred"));
-		v.dispatch("mouseenter");
-		h.advance(REVEAL_DELAY_MS + 1);
-		expect(v.style.filter).toBe("");
-		expect(v.dataset.hbRevealed).toBe("");
-		v.dispatch("mouseleave");
-		expect(v.style.filter).toContain("blur(");
+		await vi.waitFor(() => expect(v.dataset.hbState).toBe("blur"));
+		manager.reveal(asVideo(v));
+		expect(v.dataset.hbBlur).toBeUndefined();
+		expect(v.dataset.hbReveal).toBe("click");
+		// Later verdicts must not re-blur a revealed video.
+		h.advance(600);
+		v.currentTime += 0.5;
+		h.pumpFrames();
+		await vi.waitFor(() => expect(h.classifyFrame).toHaveBeenCalledTimes(2));
+		expect(v.dataset.hbBlur).toBeUndefined();
 	});
 
-	it("does not reveal on hover when unblurVideos is off", async () => {
-		const { manager, h } = await makeManager({ unblurVideos: false });
+	it("rebuilds blur from lastVerdict on settings change without wiping reasons", async () => {
+		const { manager, h, settingsRef, watch } = await makeManager();
 		h.classifyFrame.mockResolvedValue(verdict("blur", 0.95));
 		const v = new FakeVideo();
 		v.paused = false;
 		manager.observe(asVideo(v));
 		h.pumpFrames();
-		await vi.waitFor(() => expect(v.dataset.hbState).toBe("blurred"));
-		v.dispatch("mouseenter");
-		h.advance(REVEAL_DELAY_MS + 1);
-		expect(v.style.filter).toContain("blur(");
+		await vi.waitFor(() => expect(v.dataset.hbState).toBe("blur"));
+		watch({ ...settingsRef, blurAmount: 40 }, settingsRef);
+		expect(v.dataset.hbState).toBe("blur");
+		expect(v.dataset.hbBlur).toBe("1");
+		expect(v.dataset.hbReasons).toContain("FACE_FEMALE");
 	});
 
 	it("stops and unblurs all videos when settings turn detection off", async () => {
@@ -172,11 +180,11 @@ describe("VideoManager", () => {
 		v.paused = false;
 		manager.observe(asVideo(v));
 		h.pumpFrames();
-		await vi.waitFor(() => expect(v.dataset.hbState).toBe("blurred"));
+		await vi.waitFor(() => expect(v.dataset.hbState).toBe("blur"));
 		watch({ ...settingsRef, status: false }, settingsRef);
 		expect(manager.size).toBe(0);
 		expect(v.dataset.hbState).toBe("clear");
-		expect(v.style.filter).toBe("");
+		expect(v.dataset.hbBlur).toBeUndefined();
 	});
 
 	it("unobserve disposes the sampler and clears blur", async () => {
@@ -186,7 +194,7 @@ describe("VideoManager", () => {
 		v.paused = false;
 		manager.observe(asVideo(v));
 		h.pumpFrames();
-		await vi.waitFor(() => expect(v.dataset.hbState).toBe("blurred"));
+		await vi.waitFor(() => expect(v.dataset.hbState).toBe("blur"));
 		manager.unobserve(asVideo(v));
 		expect(manager.size).toBe(0);
 		expect(v.dataset.hbState).toBe("clear");

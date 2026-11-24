@@ -130,8 +130,35 @@ function imgSize(el: HTMLImageElement): { width: number; height: number } {
 }
 
 /**
+ * X.com (React Native Web) renders each image twice: an `opacity: 0`
+ * `<img>` plus a sibling/parent `<div>` carrying the same pixels as
+ * `background-image`. The img is invisible bookkeeping — classifying and
+ * blur-tracking it doubles the DOM work and, worse, gives region blur the
+ * wrong (invisible) element to anchor to. When the computed opacity is 0
+ * and a sibling or parent shows the same background URL, skip the img.
+ */
+function isInvisiblePairedImg(el: HTMLImageElement, url: string): boolean {
+	// "" (jsdom/unset) must not read as 0 — Number("") === 0.
+	const opacity = getComputedStyle(el).opacity;
+	if (opacity === "" || Number(opacity) !== 0) return false;
+	const carriers: (Element | null)[] = [
+		el.parentElement,
+		el.previousElementSibling,
+		el.nextElementSibling,
+	];
+	for (const carrier of carriers) {
+		if (!(carrier instanceof HTMLElement)) continue;
+		const bg = getComputedStyle(carrier).backgroundImage;
+		if (bg === "none" || bg.length === 0) continue;
+		if (extractBackgroundImageUrl(bg) === url) return true;
+	}
+	return false;
+}
+
+/**
  * Build a {@link MediaCandidate} from an element, or `null` when it should be
- * ignored (tracking pixel, tiny `data:` URL, SVG, no background URL).
+ * ignored (tracking pixel, tiny `data:` URL, SVG, no background URL, or an
+ * invisible img shadowed by a background-image twin).
  */
 export function candidateFor(el: HTMLElement, visible: boolean): MediaCandidate | null {
 	let kind: MediaKind;
@@ -142,6 +169,9 @@ export function candidateFor(el: HTMLElement, visible: boolean): MediaCandidate 
 		kind = "image";
 		url = imageUrl(el);
 		({ width, height } = imgSize(el));
+		if (url != null && isClassifiableUrl(url) && isInvisiblePairedImg(el, url)) {
+			return null;
+		}
 	} else if (el instanceof HTMLVideoElement) {
 		kind = "video";
 		url = videoUrl(el);

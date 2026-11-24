@@ -47,11 +47,11 @@ const det = (label: Detection["label"], score: number): Detection => ({
 });
 
 describe("data-hb-reasons round-trip", () => {
-	it("serializes detections to [{label, score}] JSON and back", () => {
+	it("serializes detections to [{label, score, box, age?}] JSON and back", () => {
 		const json = reasonsToJson([det("FACE_FEMALE", 0.8), det("BELLY_COVERED", 0.4)]);
 		expect(JSON.parse(json)).toEqual([
-			{ label: "FACE_FEMALE", score: 0.8 },
-			{ label: "BELLY_COVERED", score: 0.4 },
+			{ label: "FACE_FEMALE", score: 0.8, box: [0.1, 0.2, 0.3, 0.4] },
+			{ label: "BELLY_COVERED", score: 0.4, box: [0.1, 0.2, 0.3, 0.4] },
 		]);
 		const back = reasonsFromJson(json);
 		expect(back).toHaveLength(2);

@@ -45,9 +45,18 @@ export function revealAllowed(kind: MediaKind, settings: Settings): boolean {
 	return kind === "video" ? settings.unblurVideos : settings.unblurImages;
 }
 
-/** Whether a pending/erroring element stays blurred under this fail mode. */
-export function blurOnUncertainty(settings: Settings): boolean {
-	return settings.failClosed || settings.blurryStartMode;
+/**
+ * Pending elements (verdict outstanding) stay blurred only in
+ * `blurryStartMode` — the "start blurry" opt-in. Errors/timeouts are governed
+ * separately by `failClosed` (docs/PLAN.md goal 1).
+ */
+export function blurWhilePending(settings: Settings): boolean {
+	return settings.blurryStartMode;
+}
+
+/** Whether an element that failed classification stays blurred. */
+export function blurOnError(settings: Settings): boolean {
+	return settings.failClosed;
 }
 
 /** Regenerate the stylesheet for the current settings. */
@@ -64,7 +73,6 @@ export function applyBlurStyles(settings: Settings): void {
 [data-hb-blur] {
 	filter: blur(var(--hb-blur)) grayscale(var(--hb-gray)) !important;
 	transition: filter 0.1s ease !important;
-	opacity: unset !important;
 }
 @keyframes hb-loading {
 	0%, 100% { filter: blur(var(--hb-blur)) grayscale(var(--hb-gray)); }
@@ -130,6 +138,7 @@ export function clearAll(el: HTMLElement): void {
 		"hbVisible",
 		"hbReasons",
 		"hbReveal",
+		"hbRegion",
 	]) {
 		delete el.dataset[key];
 	}

@@ -217,6 +217,11 @@ export class VideoSampler {
 		return this.actor.getSnapshot().context.decisions;
 	}
 
+	/** Most recent verdict, for settings re-decides that must not lose reasons. */
+	get lastVerdict(): Verdict | null {
+		return this.actor.getSnapshot().context.lastVerdict;
+	}
+
 	get sampling(): boolean {
 		return this.state === "sampling";
 	}

@@ -10,7 +10,7 @@
  * the v1 → v2 migration runs on the user's real stored object on update.
  */
 export const SETTINGS_KEY = "sync:hb-settings";
-export const SETTINGS_VERSION = 3;
+export const SETTINGS_VERSION = 4;
 
 export interface Settings {
 	/** Master on/off switch (old `status`). */
@@ -47,11 +47,18 @@ export interface Settings {
 	 * (the default per PLAN.md, "fail closed").
 	 */
 	failClosed: boolean;
+	/**
+	 * Blur only the detected regions of an image instead of the whole element
+	 * (Shadow-DOM portal overlays). Whole-element blur remains the fallback
+	 * for full-frame detections (e.g. NSFW_SUGGESTIVE/EXPLICIT) and whenever
+	 * region layout can't be mirrored.
+	 */
+	regionBlur: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
 	status: true,
-	blurryStartMode: false,
+	blurryStartMode: true,
 	blurAmount: 20,
 	gray: true,
 	strictness: 0.5,
@@ -65,6 +72,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	unblurVideos: false,
 	allowlist: [],
 	failClosed: true,
+	regionBlur: true,
 };
 
 /** Shape stored by HaramBlur 0.2.x under `chrome.storage.sync["hb-settings"]`. */
@@ -112,5 +120,6 @@ export function migrateLegacySettings(legacy: LegacySettings): Settings {
 			? legacy.whitelist.filter((h): h is string => typeof h === "string")
 			: [],
 		failClosed: DEFAULT_SETTINGS.failClosed,
+		regionBlur: DEFAULT_SETTINGS.regionBlur,
 	};
 }

@@ -12,7 +12,7 @@ export {
 	MAX_FRAME_EDGE,
 	scaledSize,
 } from "./frames";
-export { MAX_CONCURRENT_VIDEOS, REVEAL_DELAY_MS, VideoManager } from "./manager";
+export { MAX_CONCURRENT_VIDEOS, VideoManager } from "./manager";
 export type {
 	SamplerContext,
 	SamplerEvent,
