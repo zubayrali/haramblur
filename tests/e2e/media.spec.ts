@@ -410,3 +410,81 @@ test("blurryStartMode:false leaves pending elements unblurred", async () => {
 		await close();
 	}
 });
+
+const SHADOW_PAGE = `<!doctype html>
+<html><body><div id="host"></div>
+<script>
+  const host = document.getElementById("host");
+  const sr = host.attachShadow({ mode: "open" });
+  sr.innerHTML = \`
+    <img id="s-img" src="/portrait-woman.jpg" width="200" height="150">
+    <div id="s-bg" style="width:200px;height:150px;background-image:url(/portrait-woman.jpg);background-size:cover"></div>\`;
+  setTimeout(() => {
+    const late = document.createElement("img");
+    late.id = "s-late";
+    late.src = "/portrait-woman.jpg";
+    late.width = 160; late.height = 120;
+    sr.appendChild(late);
+  }, 1200);
+</script></body></html>`;
+
+test("shadow DOM media: discovery, adopted styles, region portal, late mutations", async () => {
+	const { context, extensionId, userDataDir } = await launchExtension();
+	const { url, close } = await serveFixtures({ "/shadow": SHADOW_PAGE });
+	try {
+		const ext = await context.newPage();
+		await ext.goto(`chrome-extension://${extensionId}/popup.html`);
+		await writeSettings(ext, { strictness: 1 });
+
+		const page = await context.newPage();
+		await page.goto(`${url}/shadow`);
+
+		// Elements inside the open shadow root are discovered and classified —
+		// querySelectorAll alone can't see them (YouTube thumbnails live here).
+		await page.waitForFunction(
+			() => {
+				const sr = document.getElementById("host")?.shadowRoot;
+				return (
+					sr?.getElementById("s-img")?.dataset.hbState === "blur" &&
+					sr?.getElementById("s-bg")?.dataset.hbState === "blur"
+				);
+			},
+			undefined,
+			{ timeout: 45_000, polling: 250 },
+		);
+
+		// The blur stylesheet is adopted into the shadow root (whole-element
+		// mode) — verify the sheet exists; region mode may keep filter:none.
+		const adopted = await page.evaluate(() => {
+			const sr = document.getElementById("host")?.shadowRoot;
+			return (sr?.adoptedStyleSheets?.length ?? 0) > 0;
+		});
+		expect(adopted).toBe(true);
+
+		// Mutations inside the shadow root are observed: the late img resolves too.
+		await page.waitForFunction(
+			() => {
+				const sr = document.getElementById("host")?.shadowRoot;
+				return sr?.getElementById("s-late")?.dataset.hbState === "blur";
+			},
+			undefined,
+			{ timeout: 45_000, polling: 250 },
+		);
+
+		// Region portal paints over shadow content (position:fixed, top layer).
+		await expect
+			.poll(
+				() =>
+					page.evaluate(
+						() =>
+							document.getElementById("hb-region-portal")?.shadowRoot?.querySelectorAll(".hb-rh")
+								.length ?? 0,
+					),
+				{ timeout: 15_000 },
+			)
+			.toBeGreaterThan(0);
+	} finally {
+		await closeExtension(context, userDataDir);
+		await close();
+	}
+});

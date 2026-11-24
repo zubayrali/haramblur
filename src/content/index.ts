@@ -18,6 +18,7 @@ import {
 import {
 	candidateFor,
 	type DiscoveryHandle,
+	deepQueryAll,
 	type MediaCandidate,
 	type MediaKind,
 	startDiscovery,
@@ -212,7 +213,7 @@ export async function startContentPipeline(): Promise<void> {
 		clearAllRegionBlurs();
 		urlByElement = new WeakMap();
 		pendingKeyByElement = new WeakMap();
-		for (const el of document.querySelectorAll<HTMLElement>("[data-hb-kind]")) {
+		for (const el of deepQueryAll<HTMLElement>(document, "[data-hb-kind]")) {
 			removeRegionBlur(el);
 			clearAll(el);
 		}
@@ -225,7 +226,7 @@ export async function startContentPipeline(): Promise<void> {
 	 * instead of leaving them marked-but-blurred with no reasons.
 	 */
 	function redecideAll(next: Settings): void {
-		for (const el of document.querySelectorAll<HTMLElement>("[data-hb-kind]")) {
+		for (const el of deepQueryAll<HTMLElement>(document, "[data-hb-kind]")) {
 			const kind = el.dataset.hbKind as MediaKind;
 			// The video sampler owns <video> elements; its own settings watch
 			// (VideoManager.applySettings) re-evaluates them.
@@ -270,11 +271,17 @@ export async function startContentPipeline(): Promise<void> {
 	}
 
 	// Reveal on click where settings allow; hover reveal is per-mode CSS
-	// (whole-element) or the portal's JS timer (region mode).
+	// (whole-element) or the portal's JS timer (region mode). composedPath is
+	// required: ev.target is retargeted to the shadow host for listeners
+	// outside the shadow tree, so closest() would miss media inside shadow DOM.
 	document.addEventListener(
 		"click",
 		(ev) => {
-			const el = (ev.target as Element | null)?.closest?.("[data-hb-blur],[data-hb-region]");
+			const el = ev
+				.composedPath()
+				.find(
+					(n): n is Element => n instanceof Element && n.matches("[data-hb-blur],[data-hb-region]"),
+				);
 			if (!(el instanceof HTMLElement)) return;
 			const kind = el.dataset.hbKind as MediaKind | undefined;
 			if (kind == null || !revealAllowed(kind, settings)) return;
@@ -294,7 +301,7 @@ export async function startContentPipeline(): Promise<void> {
 	 * arrive with the media's resolved URL).
 	 */
 	function findMediaBySrc(srcUrl: string): HTMLElement | null {
-		for (const el of document.querySelectorAll<HTMLElement>("[data-hb-kind]")) {
+		for (const el of deepQueryAll<HTMLElement>(document, "[data-hb-kind]")) {
 			const candidate = candidateFor(el, el.dataset.hbVisible === "1");
 			if (candidate?.url === srcUrl) return el;
 		}

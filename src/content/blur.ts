@@ -28,6 +28,46 @@ const REVEAL_DELAY_MS = 1000;
 
 export type MediaState = "pending" | "blur" | "clear" | "error";
 
+/**
+ * The document stylesheet can't cross shadow boundaries — media inside open
+ * shadow roots (YouTube's `yt-img-shadow` thumbnails) needs the same rules
+ * adopted into each shadow root. One shared CSSStyleSheet is appended to
+ * `adoptedStyleSheets` (no DOM mutation inside the site's tree); custom
+ * properties still inherit in from the document `:root`.
+ */
+let sharedSheet: CSSStyleSheet | null = null;
+let lastCss = "";
+const styledRoots = new WeakSet<ShadowRoot>();
+
+function sharedBlurSheet(): CSSStyleSheet | null {
+	if (typeof CSSStyleSheet === "undefined") return null;
+	if (sharedSheet == null) {
+		try {
+			sharedSheet = new CSSStyleSheet();
+			if (lastCss.length > 0) sharedSheet.replaceSync(lastCss);
+		} catch {
+			return null;
+		}
+	}
+	return sharedSheet;
+}
+
+/** Adopt the blur stylesheet into the shadow root containing `el`, if any. */
+export function ensureShadowStyles(el: HTMLElement): void {
+	const root = el.getRootNode?.();
+	if (root == null || typeof ShadowRoot === "undefined" || !(root instanceof ShadowRoot)) {
+		return;
+	}
+	const sheet = sharedBlurSheet();
+	if (sheet == null || styledRoots.has(root)) return;
+	styledRoots.add(root);
+	try {
+		root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+	} catch {
+		// Older engines without adoptedStyleSheets — region portal still works.
+	}
+}
+
 /** Inject (or reuse) the blur stylesheet. Safe at document_start: attaches to
  * `documentElement` when `<head>` does not exist yet. */
 export function ensureBlurStyles(doc: Document = document): HTMLStyleElement {
@@ -101,10 +141,18 @@ ${hoverSelectors.join(",\n")} {
 }`;
 	}
 	style.textContent = css;
+	lastCss = css;
+	try {
+		sharedSheet?.replaceSync(css);
+	} catch {
+		// Sheet not yet created or engine rejected the text — next
+		// ensureShadowStyles call picks up lastCss.
+	}
 }
 
 export function setKind(el: HTMLElement, kind: MediaKind): void {
 	el.dataset.hbKind = kind;
+	ensureShadowStyles(el);
 }
 
 export function setState(el: HTMLElement, state: MediaState): void {

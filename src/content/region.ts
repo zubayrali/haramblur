@@ -335,13 +335,23 @@ function flushSync(): void {
 	pendingSync.clear();
 }
 
+/** parentElement that crosses open shadow boundaries via the host. */
+function parentAcrossShadow(el: Element): Element | null {
+	if (el.parentElement != null) return el.parentElement;
+	const root = el.getRootNode?.();
+	if (root != null && typeof ShadowRoot !== "undefined" && root instanceof ShadowRoot) {
+		return root.host.parentElement;
+	}
+	return null;
+}
+
 /** Intersect `rect` with every clipping ancestor's border box. */
 function clipRectFor(el: HTMLElement, rect: DOMRect): PixelRect | null {
 	let x0 = rect.left;
 	let y0 = rect.top;
 	let x1 = rect.right;
 	let y1 = rect.bottom;
-	let node = el.parentElement;
+	let node = parentAcrossShadow(el);
 	while (node != null && node !== document.documentElement) {
 		const cs = getComputedStyle(node);
 		const clips =
@@ -357,7 +367,7 @@ function clipRectFor(el: HTMLElement, rect: DOMRect): PixelRect | null {
 			y1 = Math.min(y1, r.bottom);
 			if (x1 <= x0 || y1 <= y0) return null;
 		}
-		node = node.parentElement;
+		node = parentAcrossShadow(node);
 	}
 	return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
