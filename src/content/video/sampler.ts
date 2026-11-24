@@ -1,4 +1,5 @@
 import { type AnyActorRef, assign, createActor, setup } from "xstate";
+import { FACE_KIND_LABELS } from "../../shared/labels";
 import type { Verdict, VerdictDecision } from "../../shared/protocol";
 import { captureFrame, hashDistance } from "./frames";
 import {
@@ -63,7 +64,12 @@ export type SamplerEvent =
 /** A verdict strong enough to flip blur on its own, without a second vote. */
 export function isHighConfidence(verdict: Verdict): boolean {
 	if (verdict.decision === "blur") {
-		return verdict.reasons.some((r) => r.score >= HIGH_CONFIDENCE_SCORE);
+		// A verdict carried only by face labels is never instant: gender
+		// flip-flops on borderline faces are the main blur-flicker source,
+		// so they always wait for the second agreeing frame.
+		return verdict.reasons.some(
+			(r) => r.score >= HIGH_CONFIDENCE_SCORE && !FACE_KIND_LABELS.has(r.label),
+		);
 	}
 	return verdict.reasons.length === 0;
 }

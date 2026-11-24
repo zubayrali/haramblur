@@ -62,8 +62,17 @@ describe("decide", () => {
 		expect(decide([det("MALE_GENITALIA_EXPOSED", LABEL_SCORE_FLOOR - 0.01)], base)).toBe("clear");
 		expect(decide([det("MALE_GENITALIA_EXPOSED", LABEL_SCORE_FLOOR + 0.01)], base)).toBe("blur");
 		expect(decide([det("FEMALE_GENITALIA_EXPOSED", LABEL_SCORE_FLOOR - 0.01)], base)).toBe("clear");
-		// Non-genitalia core classes have no floor.
-		expect(decide([det("ANUS_EXPOSED", 0.3)], base)).toBe("blur");
+	});
+
+	it("requires a noise margin for breast/buttocks/anus classes", () => {
+		// At strictness 0.5 the exposed threshold is 0.275; noisy classes need
+		// +0.2 → 0.475. The 0.3–0.45 skin-texture FPs stay clear.
+		expect(decide([det("FEMALE_BREAST_EXPOSED", 0.3)], base)).toBe("clear");
+		expect(decide([det("BUTTOCKS_EXPOSED", 0.45)], base)).toBe("clear");
+		expect(decide([det("ANUS_EXPOSED", 0.45)], base)).toBe("clear");
+		expect(decide([det("FEMALE_BREAST_EXPOSED", 0.5)], base)).toBe("blur");
+		// The margin still scales with strictness (lenient end loosens it).
+		expect(decide([det("BUTTOCKS_EXPOSED", 0.45)], { ...base, strictness: 1 })).toBe("blur");
 	});
 
 	it("ignores modesty labels unless strictModesty is on", () => {
@@ -103,13 +112,15 @@ describe("decide", () => {
 		expect(decide(dets, { ...base, blurFemale: false })).toBe("clear");
 	});
 
-	it("uses a lower threshold for exposed nudity than for faces", () => {
-		// Between the two thresholds at strictness 0: exposed blurs, faces don't.
+	it("exposed classes sit at or above the face bar once margins apply", () => {
+		// strictness 0: face 0.6; noisy exposed = 0.4 + 0.2 margin = 0.6.
 		const s = { ...base, strictness: 0 };
 		expect(faceThreshold(0)).toBeCloseTo(0.6);
 		expect(exposedThreshold(0)).toBeCloseTo(0.4);
+		expect(blurThresholdFor("BUTTOCKS_EXPOSED", s)).toBeCloseTo(0.6);
 		expect(decide([det("FACE_FEMALE", 0.5)], s)).toBe("clear");
-		expect(decide([det("ANUS_EXPOSED", 0.45)], s)).toBe("blur");
+		expect(decide([det("BUTTOCKS_EXPOSED", 0.55)], s)).toBe("clear");
+		expect(decide([det("BUTTOCKS_EXPOSED", 0.65)], s)).toBe("blur");
 	});
 
 	it("higher strictness lowers face thresholds via lerp(0.6, 0.2, s)", () => {
@@ -131,6 +142,39 @@ describe("decide", () => {
 		expect(decide([{ ...det("FACE_MALE", 0.9), age: 10 }], { ...base, blurMale: true })).toBe(
 			"clear",
 		);
+	});
+
+	it("suppresses low-confidence breast hits in a male face's torso zone", () => {
+		// The YouTube-lapel FP: confident FACE_MALE with a sub-0.75
+		// FEMALE_BREAST_EXPOSED centered under his chin.
+		const maleFace: Detection = {
+			label: "FACE_MALE",
+			score: 0.9,
+			box: [0.4, 0.1, 0.2, 0.25],
+		};
+		const lapel: Detection = {
+			label: "FEMALE_BREAST_EXPOSED",
+			score: 0.5, // above the 0.475 noise margin, below the 0.75 suppression ceiling
+			box: [0.42, 0.32, 0.16, 0.2], // top ≈ chin level, centered under face
+		};
+		expect(decide([maleFace, lapel], base)).toBe("clear");
+		expect(blurCapableDetections([maleFace, lapel], base)).toHaveLength(0);
+		// Off to the side (a woman beside him) → not suppressed.
+		const besideHim: Detection = { ...lapel, box: [0.05, 0.32, 0.16, 0.2] };
+		expect(decide([maleFace, besideHim], base)).toBe("blur");
+		// High-confidence detections always stand, even in the torso zone.
+		const strong: Detection = { ...lapel, score: 0.8 };
+		expect(decide([maleFace, strong], base)).toBe("blur");
+		// A weak male face can't suppress anything.
+		const weakMale: Detection = { ...maleFace, score: 0.4 };
+		expect(decide([weakMale, lapel], base)).toBe("blur");
+	});
+
+	it("FACE_PERSON never blurs but suppresses nothing else", () => {
+		expect(decide([det("FACE_PERSON", 0.99)], base)).toBe("clear");
+		expect(blurThresholdFor("FACE_PERSON", base)).toBeNull();
+		// Mixed with a real trigger it changes nothing.
+		expect(decide([det("FACE_PERSON", 0.9), det("FACE_FEMALE", 0.9)], base)).toBe("blur");
 	});
 
 	it("NSFW labels blur on their margin score, strictness-scaled", () => {

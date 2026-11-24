@@ -32,7 +32,7 @@ export const FACE_RELABEL_MIN_CONF = 0.7;
  * same face — NudeNet sometimes emits both labels on one box. */
 export const FACE_CLUSTER_IOU = 0.3;
 
-export const FACE_LABELS = new Set<Detection["label"]>(["FACE_FEMALE", "FACE_MALE"]);
+export const FACE_LABELS = new Set<Detection["label"]>(["FACE_FEMALE", "FACE_MALE", "FACE_PERSON"]);
 
 export interface FaceGender {
 	femaleProb: number;
@@ -132,8 +132,12 @@ export function faceCropRect(
  *   to a single detection with the corrected `FACE_FEMALE`/`FACE_MALE`
  *   label, keeping the representative's NudeNet score (that score measures
  *   "is there a face here", which FastFace cannot judge);
- * - classifier unsure or crop unusable → the cluster's original detections
- *   pass through unchanged.
+ * - classifier not confident (< `FACE_RELABEL_MIN_CONF`) → the cluster
+ *   collapses to a neutral `FACE_PERSON` — the face is real but its gender
+ *   isn't verified, so NudeNet's noisy gendered label is suppressed without
+ *   asserting one (eval: NudeNet FACE_FEMALE fires on men at ~0.5);
+ * - classifier unavailable (crop unusable, call failed) → the cluster's
+ *   original detections pass through unchanged.
  *
  * Non-face detections are untouched.
  */
@@ -155,14 +159,29 @@ export async function refineFaceDetections(
 		const gender = await classify(rep.box).catch(() => null);
 		if (gender == null) continue;
 		const conf = Math.max(gender.femaleProb, gender.maleProb);
-		if (conf < FACE_RELABEL_MIN_CONF) continue;
-		const label: Detection["label"] =
-			gender.femaleProb >= gender.maleProb ? "FACE_FEMALE" : "FACE_MALE";
-		for (const m of cluster.members) {
-			replacements.set(
-				m,
-				m === rep ? { label, score: rep.score, box: rep.box, age: gender.age } : null,
-			);
+		if (conf >= FACE_RELABEL_MIN_CONF) {
+			const label: Detection["label"] =
+				gender.femaleProb >= gender.maleProb ? "FACE_FEMALE" : "FACE_MALE";
+			for (const m of cluster.members) {
+				replacements.set(
+					m,
+					m === rep ? { label, score: rep.score, box: rep.box, age: gender.age } : null,
+				);
+			}
+		} else {
+			// Gender not verified: collapse the cluster to a neutral
+			// placeholder. NudeNet's FACE_FEMALE is noisy on male faces —
+			// keeping it would blur men; asserting a gender FastFace can't
+			// support is worse. Covers the whole sub-RELABEL band, including
+			// near-coin-flip outputs (~0.5) that previously passed through.
+			for (const m of cluster.members) {
+				replacements.set(
+					m,
+					m === rep
+						? { label: "FACE_PERSON", score: rep.score, box: rep.box, age: gender.age }
+						: null,
+				);
+			}
 		}
 	}
 

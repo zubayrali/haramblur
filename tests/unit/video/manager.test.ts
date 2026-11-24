@@ -142,7 +142,9 @@ describe("VideoManager", () => {
 
 	it("reveals a blurred video on click and stays revealed", async () => {
 		const { manager, h } = await makeManager({ unblurVideos: true });
-		h.classifyFrame.mockResolvedValue(verdict("blur", 0.95)); // high confidence → instant blur
+		h.classifyFrame.mockResolvedValue(
+			verdict("blur", 0.95, 1, "FEMALE_BREAST_EXPOSED"), // high confidence → instant blur
+		);
 		const v = new FakeVideo();
 		v.paused = false;
 		manager.observe(asVideo(v));
@@ -166,6 +168,11 @@ describe("VideoManager", () => {
 		v.paused = false;
 		manager.observe(asVideo(v));
 		h.pumpFrames();
+		await vi.waitFor(() => expect(h.classifyFrame).toHaveBeenCalledTimes(1));
+		// Face-only verdicts need the second agreeing frame (no instant flip).
+		h.advance(600);
+		v.currentTime += 0.5;
+		h.pumpFrames();
 		await vi.waitFor(() => expect(v.dataset.hbState).toBe("blur"));
 		watch({ ...settingsRef, blurAmount: 40 }, settingsRef);
 		expect(v.dataset.hbState).toBe("blur");
@@ -175,7 +182,7 @@ describe("VideoManager", () => {
 
 	it("stops and unblurs all videos when settings turn detection off", async () => {
 		const { manager, h, settingsRef, watch } = await makeManager();
-		h.classifyFrame.mockResolvedValue(verdict("blur", 0.95));
+		h.classifyFrame.mockResolvedValue(verdict("blur", 0.95, 1, "FEMALE_BREAST_EXPOSED"));
 		const v = new FakeVideo();
 		v.paused = false;
 		manager.observe(asVideo(v));
@@ -189,7 +196,7 @@ describe("VideoManager", () => {
 
 	it("unobserve disposes the sampler and clears blur", async () => {
 		const { manager, h } = await makeManager();
-		h.classifyFrame.mockResolvedValue(verdict("blur", 0.95));
+		h.classifyFrame.mockResolvedValue(verdict("blur", 0.95, 1, "FEMALE_BREAST_EXPOSED"));
 		const v = new FakeVideo();
 		v.paused = false;
 		manager.observe(asVideo(v));
