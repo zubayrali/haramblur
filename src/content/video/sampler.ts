@@ -212,6 +212,11 @@ export class VideoSampler {
 		return this.actor.getSnapshot().context.blurred;
 	}
 
+	/** Recent raw verdict decisions, newest last (length ≤ HYSTERESIS_WINDOW). */
+	get decisions(): readonly VerdictDecision[] {
+		return this.actor.getSnapshot().context.decisions;
+	}
+
 	get sampling(): boolean {
 		return this.state === "sampling";
 	}
@@ -379,6 +384,7 @@ export class VideoSampler {
 				ts: frame.ts,
 			});
 			this.actor.send({ type: "VERDICT", verdict });
+			this.deps.onVerdict?.(this.video, verdict);
 			this.updateRate(dist);
 		} catch (err) {
 			this.deps.onError?.(this.video, err);

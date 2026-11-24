@@ -6,9 +6,9 @@ import type { VideoManagerDeps } from "./types";
 export type { CapturedFrame } from "./frames";
 export {
 	captureFrame,
+	FRAME_MIME,
 	HASH_GRID,
 	hashDistance,
-	JPEG_QUALITY,
 	MAX_FRAME_EDGE,
 	scaledSize,
 } from "./frames";

@@ -56,6 +56,8 @@ export interface DiscoveryHandlers {
 	onCandidate(candidate: MediaCandidate): void;
 	/** An already-found element became visible — boost its queue priority. */
 	onVisible(element: HTMLElement): void;
+	/** A previously discovered element was removed from the DOM. */
+	onRemoved?(element: HTMLElement): void;
 }
 
 export interface DiscoveryHandle {
@@ -209,6 +211,15 @@ export function startDiscovery(root: Document, handlers: DiscoveryHandlers): Dis
 			if (mutation.type === "childList") {
 				for (const node of mutation.addedNodes) {
 					if (node instanceof Element) scan(node);
+				}
+				if (handlers.onRemoved != null) {
+					for (const node of mutation.removedNodes) {
+						if (!(node instanceof Element)) continue;
+						for (const el of mediaElements(node)) {
+							io.unobserve(el);
+							handlers.onRemoved(el);
+						}
+					}
 				}
 			} else if (mutation.type === "attributes") {
 				const target = mutation.target;

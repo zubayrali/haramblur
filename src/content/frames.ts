@@ -1,8 +1,9 @@
 /**
  * Canvas capture for media the engine cannot fetch itself (docs/PLAN.md
  * "Image pixels"): `data:`/`blob:` URLs, and `<video>` elements without a
- * fetchable `poster`. Produces a downscaled JPEG data URL sent as
- * `classifyImage`'s `frameUrl`.
+ * fetchable `poster`. Produces a downscaled PNG data URL sent as
+ * `classifyImage`'s `frameUrl` (PNG, not JPEG: lossy re-encoding collapses
+ * detection scores on these small frames into false `clear` verdicts).
  */
 
 /** Largest edge of the captured frame; matches the model's input size. */
@@ -26,7 +27,7 @@ function drawScaled(
 	if (ctx == null) return null;
 	try {
 		ctx.drawImage(source, 0, 0, w, h);
-		return canvas.toDataURL("image/jpeg", 0.7);
+		return canvas.toDataURL("image/png");
 	} catch {
 		// Cross-origin media without CORS taints the canvas.
 		return null;
@@ -34,7 +35,7 @@ function drawScaled(
 }
 
 /**
- * Capture the currently displayed pixels of an image or video as a JPEG data
+ * Capture the currently displayed pixels of an image or video as a PNG data
  * URL, at most 320 px on the long edge. Returns `null` when pixels are not
  * drawable (unloaded, or canvas tainted by CORS).
  */
