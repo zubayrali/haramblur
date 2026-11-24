@@ -14,6 +14,7 @@ let bootError: string | null = null;
 try {
 	host = createEngineHost({
 		modelUrl: browser.runtime.getURL("/models/320n.onnx"),
+		faceModelUrl: browser.runtime.getURL("/models/fastface-small-112.onnx"),
 		wasmBase: `${browser.runtime.getURL("/")}ort/`,
 	});
 } catch (e) {
