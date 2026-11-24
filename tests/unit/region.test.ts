@@ -4,6 +4,8 @@ import {
 	applyBlurMode,
 	backgroundFitFor,
 	blurRegionBoxes,
+	boxesCoveredArea,
+	coverageBoxFor,
 	disposeRegionPortal,
 	hasRegionBlur,
 	imageContentRect,
@@ -11,6 +13,7 @@ import {
 	naturalSizeFor,
 	padBox,
 	parseObjectPosition,
+	planCensor,
 	regionToElementPx,
 	removeRegionBlur,
 	syncAllRegionBlurs,
@@ -156,6 +159,66 @@ describe("pure geometry", () => {
 		expect(backgroundFitFor("cover, contain")).toBe("cover");
 	});
 
+	it("coverageBoxFor expands face boxes for head/body modes", () => {
+		const face = det("FACE_FEMALE", 0.9, [0.4, 0.3, 0.2, 0.2]);
+		// face mode → untouched
+		expect(coverageBoxFor(face, "face")).toEqual(face.box);
+		// head: asymmetric — more above (hair) than below (neck)
+		const head = coverageBoxFor(face, "head");
+		expect(head[0]).toBeLessThan(0.4);
+		expect(head[1]).toBeLessThan(0.3);
+		expect(head[0] + head[2]).toBeGreaterThan(0.6);
+		expect(head[1] + head[3]).toBeGreaterThan(0.5);
+		expect(head[1] + head[3]).toBeLessThan(0.3 + 0.2 + 0.5); // bounded below chin+neck
+		// body: wider and much taller than head
+		const body = coverageBoxFor(face, "body");
+		expect(body[2]).toBeGreaterThan(head[2]);
+		expect(body[3]).toBeGreaterThan(head[3] * 2);
+		// non-face labels never expand
+		const breast = det("FEMALE_BREAST_EXPOSED", 0.9, [0.4, 0.5, 0.2, 0.2]);
+		expect(coverageBoxFor(breast, "body")).toEqual(breast.box);
+	});
+
+	it("planCensor escalates explicit content to whole-element", () => {
+		const s = { ...SETTINGS, smartCensor: true };
+		const explicit = [det("FEMALE_GENITALIA_EXPOSED", 0.8, [0.4, 0.4, 0.2, 0.2])];
+		expect(planCensor(explicit, "image", s).whole).toBe(true);
+		// Breast exposure stays regional — swimwear is what regions are for.
+		const suggestive = [det("FEMALE_BREAST_EXPOSED", 0.8, [0.4, 0.4, 0.2, 0.2])];
+		expect(planCensor(suggestive, "image", s).whole).toBe(false);
+		// smartCensor off → regions even for explicit
+		expect(planCensor(explicit, "image", { ...s, smartCensor: false }).whole).toBe(false);
+	});
+
+	it("planCensor escalates on ≥2 female faces and large coverage", () => {
+		const s = { ...SETTINGS, smartCensor: true, escalateAreaPct: 0.3 };
+		const twoWomen = [
+			det("FACE_FEMALE", 0.9, [0.1, 0.1, 0.15, 0.2]),
+			det("FACE_FEMALE", 0.85, [0.7, 0.1, 0.15, 0.2]),
+		];
+		expect(planCensor(twoWomen, "image", s).whole).toBe(true);
+		// One face + a big body-mode region over the area threshold → whole.
+		const big = {
+			...s,
+			coverageMode: "body" as const,
+			escalateAreaPct: 0.1,
+		};
+		const oneWoman = [det("FACE_FEMALE", 0.9, [0.4, 0.3, 0.2, 0.2])];
+		expect(planCensor(oneWoman, "image", big).whole).toBe(true);
+		// Same detection under face mode + high threshold → regions.
+		expect(
+			planCensor(oneWoman, "image", { ...s, coverageMode: "face", escalateAreaPct: 0.9 }).whole,
+		).toBe(false);
+	});
+
+	it("planCensor honors wholeImages for images but not videos", () => {
+		const s = { ...SETTINGS, wholeImages: true };
+		const d = [det("FEMALE_BREAST_EXPOSED", 0.9, FACE_BOX)];
+		expect(planCensor(d, "image", s).whole).toBe(true);
+		expect(planCensor(d, "background", s).whole).toBe(true);
+		expect(planCensor(d, "video", s).whole).toBe(false);
+	});
+
 	it("blurRegionBoxes keeps only blur-capable detections, sorted and padded", () => {
 		const detections = [
 			det("FEMALE_BREAST_EXPOSED", 0.7, [0.5, 0.5, 0.1, 0.1]),
@@ -186,7 +249,7 @@ describe("portal lifecycle", () => {
 		const img = makeImg();
 		const detections = [
 			det("FEMALE_BREAST_EXPOSED", 0.9, FACE_BOX),
-			det("FEMALE_GENITALIA_EXPOSED", 0.8, [0.6, 0.6, 0.1, 0.1]),
+			det("FEMALE_BREAST_EXPOSED", 0.8, [0.6, 0.6, 0.1, 0.1]),
 		];
 		applyBlurMode(img, detections, "image", SETTINGS);
 

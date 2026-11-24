@@ -62,19 +62,93 @@ export function padBox(box: Detection["box"], pad = REGION_PAD): Detection["box"
 	return [r(x0), r(y0), r(x1 - x0), r(y1 - y0)];
 }
 
+const FACE_KIND_FOR_COVERAGE: ReadonlySet<string> = new Set(["FACE_FEMALE", "FACE_MALE"]);
+
+/**
+ * Expand a blur-capable detection to the user's `coverageMode` before the
+ * uniform pad. Face boxes grow asymmetrically — hair sits above the
+ * hairline and to the sides, the neck below the chin; `body` estimates a
+ * head-and-torso silhouette (~2.4× face width, crown to mid-torso).
+ * Non-face labels keep their detector box (body-part boxes are already
+ * anatomical).
+ */
+export function coverageBoxFor(d: Detection, mode: Settings["coverageMode"]): Detection["box"] {
+	if (mode === "face" || !FACE_KIND_FOR_COVERAGE.has(d.label)) return d.box;
+	const [x, y, w, h] = d.box;
+	const r = (v: number) => Math.round(v * 1e4) / 1e4;
+	const clampBox = (bx: number, by: number, bw: number, bh: number): Detection["box"] => {
+		const x0 = Math.min(1, Math.max(0, bx));
+		const y0 = Math.min(1, Math.max(0, by));
+		const x1 = Math.min(1, Math.max(0, bx + bw));
+		const y1 = Math.min(1, Math.max(0, by + bh));
+		return [r(x0), r(y0), r(Math.max(0, x1 - x0)), r(Math.max(0, y1 - y0))];
+	};
+	if (mode === "head") {
+		// +0.55h above (hair/forehead), ±0.35w sides (ears/hair), +0.35h below (neck).
+		return clampBox(x - 0.35 * w, y - 0.55 * h, w * 1.7, h * 1.9);
+	}
+	// body: shoulders ≈2.4× face width centered on the face, crown to
+	// ~4.5 face-heights below the chin (head + torso).
+	const bw = w * 2.4;
+	return clampBox(x + w / 2 - bw / 2, y - 0.55 * h, bw, h * (1 + 0.55 + 4.5));
+}
+
 /**
  * Normalized boxes of every detection that meets the blur bar — exactly the
- * regions that would have triggered the whole-element blur, highest score
- * first, padded and capped.
+ * regions that would have triggered the whole-element blur, expanded to
+ * `coverageMode`, highest score first, padded and capped.
  */
 export function blurRegionBoxes(
 	detections: readonly Detection[],
-	settings: PolicySettings,
+	settings: Settings,
 ): Detection["box"][] {
 	return blurCapableDetections(detections, settings)
 		.sort((a, b) => b.score - a.score)
 		.slice(0, MAX_REGIONS)
-		.map((d) => padBox(d.box));
+		.map((d) => padBox(coverageBoxFor(d, settings.coverageMode)));
+}
+
+/** Approximate covered fraction of the frame — box areas summed, overlaps
+ * overcount (conservative: pushes toward whole-censor, never away). */
+export function boxesCoveredArea(boxes: readonly Detection["box"][]): number {
+	let area = 0;
+	for (const [x, y, w, h] of boxes) area += w * h;
+	return Math.min(1, area);
+}
+
+/** Female faces among the blur-capable detections — the "subjects" signal. */
+export function femaleFaceCount(
+	detections: readonly Detection[],
+	settings: PolicySettings,
+): number {
+	return blurCapableDetections(detections, settings).filter((d) => d.label === "FACE_FEMALE")
+		.length;
+}
+
+/**
+ * Decide whether a blur verdict paints regions or censors the whole element.
+ * Whole-element wins when: region blur is off or `wholeImages` covers this
+ * kind, any detection is full-frame, `smartCensor` sees explicit content /
+ * ≥2 female subjects / region coverage over `escalateAreaPct`, or no
+ * localizable boxes remain.
+ */
+export function planCensor(
+	detections: readonly Detection[],
+	kind: MediaKind,
+	settings: Settings,
+): { whole: boolean; boxes: Detection["box"][] } {
+	const whole = { whole: true, boxes: [] as Detection["box"][] };
+	if (!settings.regionBlur || (settings.wholeImages && kind !== "video")) return whole;
+	const capable = blurCapableDetections(detections, settings);
+	if (capable.length === 0 || capable.some((d) => isFullFrameBox(d.box))) return whole;
+	const boxes = blurRegionBoxes(detections, settings);
+	if (boxes.length === 0) return whole;
+	if (settings.smartCensor) {
+		if (capable.some((d) => WHOLE_CENSOR_LABELS.has(d.label))) return whole;
+		if (femaleFaceCount(detections, settings) >= SMART_CENSOR_MAX_FEMALE_FACES) return whole;
+		if (boxesCoveredArea(boxes) > settings.escalateAreaPct) return whole;
+	}
+	return { whole: false, boxes };
 }
 
 /** A box covering essentially the whole frame — nothing to localize. */
@@ -230,6 +304,20 @@ const REGION_CLASS = "hb-rr";
 const MAX_REGIONS = 16;
 /** Inflate each box so the blur's soft edge never leaves a sharp sliver. */
 const REGION_PAD = 0.04;
+/** `smartCensor`: this many blur-capable female faces → whole-element. */
+const SMART_CENSOR_MAX_FEMALE_FACES = 2;
+/**
+ * Explicit classes that always escalate to whole-element under `smartCensor`.
+ * Breast exposure deliberately stays regional — swimwear/suggestive content
+ * is exactly what region blur exists for; genitalia/anus/buttocks mean the
+ * rest of the frame is part of the same exposure.
+ */
+const WHOLE_CENSOR_LABELS: ReadonlySet<string> = new Set([
+	"FEMALE_GENITALIA_EXPOSED",
+	"MALE_GENITALIA_EXPOSED",
+	"ANUS_EXPOSED",
+	"BUTTOCKS_EXPOSED",
+]);
 /** Reveal delay matching the whole-element CSS hover reveal. */
 const REVEAL_DELAY_MS = 1_000;
 /** Offscreen culling margin (px beyond the viewport) for sync writes. */
@@ -703,18 +791,15 @@ export function applyBlurMode(
 	removeRegionBlur(el);
 	delete el.dataset.hbRegion;
 	setBlurred(el, false);
-	if (settings.regionBlur) {
-		const capable = blurCapableDetections(detections, settings);
-		const hasFullFrame = capable.some((d) => isFullFrameBox(d.box));
-		const boxes = hasFullFrame ? [] : blurRegionBoxes(detections, settings);
-		if (boxes.length > 0 && applyRegionBlur(el, boxes, kind, settings)) {
-			return;
-		}
-		// Region apply failed — likely unloaded media or undecoded bg URL.
-		// Whole-blur now; queue an upgrade for when geometry resolves.
-		if (capable.length > 0) {
-			requestUpgrade({ el, kind, detections, settings });
-		}
+	const plan = planCensor(detections, kind, settings);
+	if (!plan.whole && applyRegionBlur(el, plan.boxes, kind, settings)) {
+		return;
+	}
+	// Region apply failed — likely unloaded media or undecoded bg URL.
+	// Whole-blur now; queue an upgrade for when geometry resolves. Only
+	// when region mode was actually intended (plan.whole skips this).
+	if (!plan.whole && blurCapableDetections(detections, settings).length > 0) {
+		requestUpgrade({ el, kind, detections, settings });
 	}
 	setBlurred(el, true);
 }

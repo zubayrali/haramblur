@@ -160,6 +160,32 @@
 				testid="opt-region-blur"
 				onchange={(v) => persist({ regionBlur: v })}
 			/>
+			{#if s.regionBlur}
+				<Toggle
+					label={t("smartCensor")}
+					hint={t("smartCensorHint")}
+					bind:checked={s.smartCensor}
+					testid="opt-smart-censor"
+					onchange={(v) => persist({ smartCensor: v })}
+				/>
+				{#if s.smartCensor}
+					<SliderRow
+						label={t("escalateAreaPct")}
+						min={5}
+						max={90}
+						bind:value={() => Math.round(s!.escalateAreaPct * 100), (v) =>
+							persist({ escalateAreaPct: v / 100 })}
+						testid="opt-escalate-area"
+					/>
+				{/if}
+				<Toggle
+					label={t("wholeImages")}
+					hint={t("wholeImagesHint")}
+					bind:checked={s.wholeImages}
+					testid="opt-whole-images"
+					onchange={(v) => persist({ wholeImages: v })}
+				/>
+			{/if}
 		</Section>
 
 		<Section title={t("facesToBlur")} testid="section-faces">
@@ -189,6 +215,22 @@
 				testid="opt-skip-children"
 				onchange={(v) => persist({ skipChildren: v })}
 			/>
+			<div class="py-1.5" data-testid="opt-coverage-mode">
+				<label class="block text-sm font-medium text-gray-800 dark:text-gray-100" for="coverage-mode">
+					{t("coverageMode")}
+				</label>
+				<p class="mb-1 text-xs text-gray-500 dark:text-gray-400">{t("coverageModeHint")}</p>
+				<select
+					id="coverage-mode"
+					class="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-800 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+					value={s.coverageMode}
+					onchange={(e) => persist({ coverageMode: (e.target as HTMLSelectElement).value as Settings["coverageMode"] })}
+				>
+					<option value="face">{t("coverageFace")}</option>
+					<option value="head">{t("coverageHead")}</option>
+					<option value="body">{t("coverageBody")}</option>
+				</select>
+			</div>
 			<SliderRow
 				label={t("strictnessLabel")}
 				min={0}

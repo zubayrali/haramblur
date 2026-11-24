@@ -56,6 +56,36 @@
 	"regionBlurHint": {
 		"message": "تشويش المناطق المكتشفة فقط بدلاً من الصورة كاملة"
 	},
+	"smartCensor": {
+		"message": "الرقابة الذكية"
+	},
+	"smartCensorHint": {
+		"message": "طمس الصورة المصغرة بالكامل عندما تتسع المناطق أو تظهر أكثر من امرأة أو يوجد محتوى فاضح"
+	},
+	"escalateAreaPct": {
+		"message": "عتبة الصورة الكاملة"
+	},
+	"wholeImages": {
+		"message": "طمس الصور بالكامل"
+	},
+	"wholeImagesHint": {
+		"message": "طمس صور الخلاصة بالكامل دائمًا بدل طمس المناطق (تحتفظ مقاطع الفيديو بتغطية المناطق)"
+	},
+	"coverageMode": {
+		"message": "تغطية الوجه"
+	},
+	"coverageModeHint": {
+		"message": "مدى توسع منطقة طمس الوجه"
+	},
+	"coverageFace": {
+		"message": "الوجه فقط"
+	},
+	"coverageHead": {
+		"message": "الرأس + الشعر"
+	},
+	"coverageBody": {
+		"message": "الرأس + الجسم"
+	},
 	"facesToBlur": {
 		"message": "الوجوه التي يجب تشويشها"
 	},
