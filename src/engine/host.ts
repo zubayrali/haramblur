@@ -42,6 +42,8 @@ export interface EngineHostOptions {
 	faceModelUrl?: string;
 	/** Absolute extension URL of `models/yunet-2023mar.onnx` (optional). */
 	yunetModelUrl?: string;
+	/** Absolute extension URL of `models/nsfwjs-u8.onnx` (optional). */
+	nsfwModelUrl?: string;
 	/** Absolute extension URL of the shipped ORT WASM assets (`/ort/`). */
 	wasmBase: string;
 	spawnWorker?: () => WorkerHandle;
@@ -130,6 +132,7 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 			modelUrl: opts.modelUrl,
 			faceModelUrl: opts.faceModelUrl,
 			yunetModelUrl: opts.yunetModelUrl,
+			nsfwModelUrl: opts.nsfwModelUrl,
 		});
 	}
 
@@ -209,7 +212,7 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 		});
 	}
 
-	function infer(bitmap: ImageBitmap, detail: boolean): Promise<Detection[]> {
+	function infer(bitmap: ImageBitmap, detail: boolean, settings: Settings): Promise<Detection[]> {
 		const id = ++inferSeq;
 		return new Promise((resolve, reject) => {
 			const timer = setTimeout(() => {
@@ -219,7 +222,7 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 			pending.set(id, { resolve, reject, timer });
 			// No transfer: the bitmap may be needed for a follow-up detail
 			// pass; the host closes it once the verdict is decided.
-			worker?.postMessage({ type: "infer", id, bitmap, detail });
+			worker?.postMessage({ type: "infer", id, bitmap, detail, settings });
 		});
 	}
 
@@ -257,17 +260,17 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 					// Cached non-detailed clear: skip the whole pass, run detail only.
 					detections = [...hit.detections];
 					if (tiles.length > 0) {
-						const tiled = await infer(bitmap, true);
+						const tiled = await infer(bitmap, true, s);
 						detections = mergeDetections(detections, tiled);
 						detailed = true;
 					}
 				} else {
-					detections = await infer(bitmap, false);
+					detections = await infer(bitmap, false, s);
 					// Detail pass (WP7): a `clear` verdict on an image bigger than the
 					// model input may hide faces letterboxed below the model floor, so
 					// re-scan overlapping crops before committing to clear.
 					if (decide(detections, s) === "clear" && tiles.length > 0) {
-						const tiled = await infer(bitmap, true);
+						const tiled = await infer(bitmap, true, s);
 						detections = mergeDetections(detections, tiled);
 						detailed = true;
 					}

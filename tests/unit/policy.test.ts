@@ -6,6 +6,7 @@ import {
 	exposedThreshold,
 	faceThreshold,
 	LABEL_SCORE_FLOOR,
+	nsfwThreshold,
 } from "../../src/shared/policy";
 import type { Detection } from "../../src/shared/protocol";
 import { DEFAULT_SETTINGS } from "../../src/shared/settings";
@@ -130,6 +131,21 @@ describe("decide", () => {
 		expect(decide([{ ...det("FACE_MALE", 0.9), age: 10 }], { ...base, blurMale: true })).toBe(
 			"clear",
 		);
+	});
+
+	it("NSFW labels blur on their margin score, strictness-scaled", () => {
+		// At strictness 0.5: nsfwThreshold = lerp(0.4, 0.15, 0.5) = 0.275.
+		expect(nsfwThreshold(0.5)).toBeCloseTo(0.275);
+		expect(decide([det("NSFW_EXPLICIT", 0.3)], base)).toBe("blur");
+		expect(decide([det("NSFW_SUGGESTIVE", 0.2)], base)).toBe("clear");
+		// Lenient strictness needs a bigger margin; strict loosens it.
+		expect(decide([det("NSFW_EXPLICIT", 0.3)], { ...base, strictness: 0 })).toBe("clear");
+		expect(decide([det("NSFW_EXPLICIT", 0.2)], { ...base, strictness: 1 })).toBe("blur");
+		// NSFW labels ignore the gender toggles — explicit content is never opt-out.
+		expect(
+			decide([det("NSFW_EXPLICIT", 0.3)], { ...base, blurFemale: false, blurMale: false }),
+		).toBe("blur");
+		expect(blurThresholdFor("NSFW_SUGGESTIVE", base)).toBeCloseTo(0.275);
 	});
 
 	it("clamps strictness outside 0..1", () => {

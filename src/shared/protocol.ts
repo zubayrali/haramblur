@@ -1,10 +1,10 @@
 import { defineExtensionMessaging } from "@webext-core/messaging";
-import type { NudeNetLabel } from "./labels";
+import type { DetectionLabel } from "./labels";
 import type { Settings } from "./settings";
 
 /** A single model detection; `box` is normalized 0..1 over the source media. */
 export interface Detection {
-	label: NudeNetLabel;
+	label: DetectionLabel;
 	score: number;
 	box: [x: number, y: number, w: number, h: number];
 	/** Estimated age in years when a face classifier provided one. */

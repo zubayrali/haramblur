@@ -5,7 +5,9 @@
  * messages carrying a transferable ImageBitmap.
  */
 import * as ort from "onnxruntime-web";
+import { decide } from "../shared/policy";
 import type { Detection, EngineBackend } from "../shared/protocol";
+import type { Settings } from "../shared/settings";
 import { createSession } from "./backend";
 import {
 	boxIou,
@@ -21,6 +23,7 @@ import {
 	genderProbs,
 	refineFaceDetections,
 } from "./fastface";
+import { NSFW_INPUT_SIZE, nsfwDetection, nsfwVerdict, softmax } from "./nsfw";
 import {
 	INPUT_SIZE,
 	LETTERBOX_FILL,
@@ -47,6 +50,8 @@ export interface WorkerInitMessage {
 	faceModelUrl?: string;
 	/** Optional YuNet face detector; absent → no dedicated face pass. */
 	yunetModelUrl?: string;
+	/** Optional nsfwjs whole-image classifier; absent → no NSFW signal. */
+	nsfwModelUrl?: string;
 }
 
 export interface WorkerInferMessage {
@@ -59,6 +64,11 @@ export interface WorkerInferMessage {
 	 * faces crushed by the 320 letterbox get a second look at higher zoom.
 	 */
 	detail?: boolean;
+	/**
+	 * Resolved settings for this request — used to skip the NSFW pass when
+	 * the detections already decide `blur` (the verdict can't change).
+	 */
+	settings?: Settings;
 }
 
 export type WorkerInMessage = WorkerInitMessage | WorkerInferMessage;
@@ -77,12 +87,15 @@ const scope = self as unknown as {
 let session: ort.InferenceSession | null = null;
 let faceSession: ort.InferenceSession | null = null;
 let yunetSession: ort.InferenceSession | null = null;
+let nsfwSession: ort.InferenceSession | null = null;
 const canvas = new OffscreenCanvas(INPUT_SIZE, INPUT_SIZE);
 const ctx = canvas.getContext("2d");
 const faceCanvas = new OffscreenCanvas(FACE_INPUT_SIZE, FACE_INPUT_SIZE);
 const faceCtx = faceCanvas.getContext("2d", { willReadFrequently: true });
 const yunetCanvas = new OffscreenCanvas(YUNET_INPUT_SIZE, YUNET_INPUT_SIZE);
 const yunetCtx = yunetCanvas.getContext("2d", { willReadFrequently: true });
+const nsfwCanvas = new OffscreenCanvas(NSFW_INPUT_SIZE, NSFW_INPUT_SIZE);
+const nsfwCtx = nsfwCanvas.getContext("2d", { willReadFrequently: true });
 /** YuNet faces per inference pass — group photos can have many. */
 const YUNET_MAX_PER_PASS = 12;
 /** FastFace must be this confident to emit a YuNet synthetic detection. */
@@ -294,7 +307,51 @@ async function detectYuNetFaces(bitmap: ImageBitmap): Promise<YuNetFaceNorm[]> {
 	}
 }
 
-async function infer(id: number, bitmap: ImageBitmap, detail: boolean): Promise<void> {
+/**
+ * Whole-image nsfwjs pass: stretch the bitmap to 224² (the model was trained
+ * on stretched resizes — aspect preservation would shift its composition
+ * priors), convert RGBA→RGB float32 0..1 NHWC, and reduce the 5-class output
+ * to an NSFW margin detection. Returns null when the session is absent or
+ * the image does not lean NSFW. Whole pass only — detail tiles would repeat
+ * context the whole pass already saw.
+ */
+async function classifyNsfw(bitmap: ImageBitmap): Promise<Detection | null> {
+	if (nsfwSession == null || nsfwCtx == null) return null;
+	nsfwCtx.drawImage(bitmap, 0, 0, NSFW_INPUT_SIZE, NSFW_INPUT_SIZE);
+	const { data: rgba } = nsfwCtx.getImageData(0, 0, NSFW_INPUT_SIZE, NSFW_INPUT_SIZE);
+	const plane = NSFW_INPUT_SIZE * NSFW_INPUT_SIZE;
+	const tensorData = new Float32Array(3 * plane);
+	for (let i = 0; i < plane; i++) {
+		const s = i * 4;
+		tensorData[i] = rgba[s]! / 255;
+		tensorData[plane + i] = rgba[s + 1]! / 255;
+		tensorData[2 * plane + i] = rgba[s + 2]! / 255;
+	}
+	const inputName = nsfwSession.inputNames[0];
+	if (inputName == null) return null;
+	const input = new ort.Tensor("float32", tensorData, [1, NSFW_INPUT_SIZE, NSFW_INPUT_SIZE, 3]);
+	let outputs: Record<string, ort.Tensor> | undefined;
+	try {
+		outputs = await nsfwSession.run({ [inputName]: input });
+		const out = outputs[nsfwSession.outputNames[0]!];
+		if (out == null) return null;
+		const probs = softmax(out.data as Float32Array);
+		const verdict = nsfwVerdict(probs);
+		return verdict == null ? null : nsfwDetection(verdict);
+	} finally {
+		input.dispose();
+		if (outputs != null) {
+			for (const t of Object.values(outputs)) t.dispose();
+		}
+	}
+}
+
+async function infer(
+	id: number,
+	bitmap: ImageBitmap,
+	detail: boolean,
+	settings: Settings | undefined,
+): Promise<void> {
 	if (session == null) {
 		scope.postMessage({ type: "inferError", id, error: "engine not initialized" });
 		return;
@@ -362,6 +419,17 @@ async function infer(id: number, bitmap: ImageBitmap, detail: boolean): Promise<
 			detections = await refineFaceDetections(detections, classifier, bitmap.width, bitmap.height);
 			detections.push(...synthetics);
 		}
+		// Whole-image NSFW pass, last: it exists to catch suggestive/anime
+		// content NudeNet misses, so it only runs when the detections so far
+		// don't already decide `blur` (skipping saves ~35 ms on the common
+		// case). Detail tiles never run it — whole-image context was seen.
+		if (!detail && nsfwSession != null) {
+			// Missing settings (tests/old hosts) → run it: can't prove blur.
+			if (settings == null || decide(detections, settings) !== "blur") {
+				const nsfw = await classifyNsfw(bitmap);
+				if (nsfw != null) detections.push(nsfw);
+			}
+		}
 		detections.sort((a, b) => b.score - a.score);
 		scope.postMessage({ type: "result", id, detections, ms: performance.now() - t0 });
 	} catch (err) {
@@ -379,17 +447,19 @@ scope.onmessage = (event) => {
 			modelUrl: msg.modelUrl,
 			faceModelUrl: msg.faceModelUrl,
 			yunetModelUrl: msg.yunetModelUrl,
+			nsfwModelUrl: msg.nsfwModelUrl,
 		})
-			.then(({ backend, session: s, faceSession: fs, yunetSession: ys }) => {
+			.then(({ backend, session: s, faceSession: fs, yunetSession: ys, nsfwSession: ns }) => {
 				session = s;
 				faceSession = fs;
 				yunetSession = ys;
+				nsfwSession = ns;
 				scope.postMessage({ type: "ready", backend });
 			})
 			.catch((err) => scope.postMessage({ type: "initError", error: errMsg(err) }));
 	} else if (msg.type === "infer") {
 		inferChain = inferChain
-			.then(() => infer(msg.id, msg.bitmap, msg.detail === true))
+			.then(() => infer(msg.id, msg.bitmap, msg.detail === true, msg.settings))
 			.catch(() => {
 				// infer() reports failures via inferError; keep the chain alive
 				// so one bad request can't stall every later inference.
