@@ -105,6 +105,7 @@ function firefoxClient(): EngineClient {
 		(host ??= createEngineHost({
 			modelUrl: browser.runtime.getURL("/models/320n.onnx"),
 			faceModelUrl: browser.runtime.getURL("/models/fastface-small-112.onnx"),
+			yunetModelUrl: browser.runtime.getURL("/models/yunet-2023mar.onnx"),
 			wasmBase: `${browser.runtime.getURL("/")}ort/`,
 		}));
 	return {

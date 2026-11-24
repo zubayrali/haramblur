@@ -43,6 +43,19 @@ const FLOOR_LABELS: ReadonlySet<NudeNetLabel> = new Set([
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
+/** Faces estimated younger than this are skipped when `skipChildren` is on. */
+export const CHILD_AGE_MAX = 15;
+
+/** A face detection the gender model believes is a child — never blurs alone. */
+function isChildFace(d: Detection, settings: PolicySettings): boolean {
+	return (
+		settings.skipChildren &&
+		(d.label === "FACE_FEMALE" || d.label === "FACE_MALE") &&
+		d.age != null &&
+		d.age < CHILD_AGE_MAX
+	);
+}
+
 /** Confidence threshold for face/gendered classes at a given strictness. */
 export function faceThreshold(strictness: number): number {
 	return lerp(FACE_THRESHOLD_MAX, FACE_THRESHOLD_MIN, clamp01(strictness));
@@ -84,6 +97,7 @@ export function blurCapableDetections(
 	settings: PolicySettings,
 ): Detection[] {
 	return detections.filter((d) => {
+		if (isChildFace(d, settings)) return false;
 		const thr = blurThresholdFor(d.label, settings);
 		return thr != null && d.score >= thr;
 	});
@@ -95,6 +109,7 @@ export function decide(
 ): VerdictDecision {
 	if (!settings.status) return "clear";
 	for (const d of detections) {
+		if (isChildFace(d, settings)) continue;
 		const thr = blurThresholdFor(d.label, settings);
 		if (thr != null && d.score >= thr) return "blur";
 	}

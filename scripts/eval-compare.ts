@@ -66,6 +66,13 @@ interface WireResponse {
 	err?: unknown;
 }
 
+declare const chrome: {
+	runtime: {
+		sendMessage(message: unknown, callback: (response: WireResponse) => void): void;
+		lastError?: { message?: string };
+	};
+};
+
 function arg(flag: string): string | undefined {
 	const i = process.argv.indexOf(flag);
 	return i >= 0 ? process.argv[i + 1] : undefined;
@@ -157,8 +164,7 @@ async function main(): Promise<void> {
 	if (!existsSync(EXTENSION_DIR)) throw new Error(`${EXTENSION_DIR} missing — run pnpm build`);
 	const manifest = JSON.parse(await readFile(MANIFEST_V2, "utf8")) as ManifestV2;
 	const splitArg = arg("--split") ?? "test";
-	const splits =
-		splitArg === "all" ? Object.keys(manifest.splits) : [splitArg];
+	const splits = splitArg === "all" ? Object.keys(manifest.splits) : [splitArg];
 	const entries: { file: string; split: string; entry: ManifestEntry }[] = [];
 	for (const s of splits) {
 		const files = manifest.splits[s]?.files;

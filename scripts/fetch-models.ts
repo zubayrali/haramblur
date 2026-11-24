@@ -35,6 +35,15 @@ const MODELS: readonly ModelFile[] = [
 		sha256: "0c3981b6c6bc67f32eca6d2d7be70dd3d11aa636c6506b79234adf4bb52d0af5",
 		size: 5_114_478,
 	},
+	{
+		// YuNet face detector (Apache-2.0, opencv_zoo): 1-pass letterboxed
+		// detector with 5 landmarks per face, strides 8/16/32. Replaces the
+		// gated short-range BlazeFace experiment — detections stand alone.
+		url: "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",
+		fileName: "yunet-2023mar.onnx",
+		sha256: "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+		size: 232_589,
+	},
 ];
 
 async function sha256OfFile(path: string): Promise<string> {

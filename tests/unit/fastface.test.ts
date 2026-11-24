@@ -3,6 +3,7 @@ import {
 	FACE_MAX_PER_PASS,
 	FACE_MIN_PX,
 	FACE_RELABEL_MIN_CONF,
+	faceAlignTransform,
 	faceCropRect,
 	faceRgbaToTensor,
 	genderProbs,
@@ -32,7 +33,7 @@ describe("refineFaceDetections", () => {
 			SRC_W,
 			SRC_H,
 		);
-		expect(out).toEqual([det("FACE_MALE", 0.83)]);
+		expect(out).toEqual([{ ...det("FACE_MALE", 0.83), age: 30 }]);
 	});
 
 	it("keeps NudeNet's label when FastFace agrees", async () => {
@@ -42,7 +43,7 @@ describe("refineFaceDetections", () => {
 			SRC_W,
 			SRC_H,
 		);
-		expect(out).toEqual([det("FACE_FEMALE", 0.8)]);
+		expect(out).toEqual([{ ...det("FACE_FEMALE", 0.8), age: 30 }]);
 	});
 
 	it("passes detections through untouched when FastFace is unsure", async () => {
@@ -63,7 +64,7 @@ describe("refineFaceDetections", () => {
 			SRC_W,
 			SRC_H,
 		);
-		expect(out).toEqual([det("FACE_FEMALE", 0.29, [0.39, 0.11, 0.11, 0.08])]);
+		expect(out).toEqual([{ ...det("FACE_FEMALE", 0.29, [0.39, 0.11, 0.11, 0.08]), age: 30 }]);
 	});
 
 	it("does not merge overlapping-but-distinct faces", async () => {
@@ -168,5 +169,58 @@ describe("genderProbs", () => {
 		const { female, male } = genderProbs([2, 0]);
 		expect(female).toBeCloseTo(0.881, 3);
 		expect(male).toBeCloseTo(0.119, 3);
+	});
+});
+
+describe("faceAlignTransform", () => {
+	const apply = (
+		t: { a: number; b: number; c: number; d: number; e: number; f: number },
+		x: number,
+		y: number,
+	) => ({ x: t.a * x + t.c * y + t.e, y: t.b * x + t.d * y + t.f });
+
+	it("returns null without two eye landmarks", () => {
+		expect(faceAlignTransform([], 500, 400)).toBeNull();
+		expect(faceAlignTransform([[0.5, 0.5]], 500, 400)).toBeNull();
+	});
+
+	it("maps the eye midpoint to (56, 39.2) and levels tilted eyes", () => {
+		// Level eyes 50px apart on a 500×400 source, normalized coords.
+		const t = faceAlignTransform(
+			[
+				[0.4, 0.3],
+				[0.5, 0.3],
+				[0.45, 0.35],
+				[0.47, 0.4],
+				[0.43, 0.4],
+			],
+			500,
+			400,
+		)!;
+		const mid = apply(t, 225, 120); // eye midpoint in px
+		expect(mid.x).toBeCloseTo(56, 3);
+		expect(mid.y).toBeCloseTo(39.2, 3);
+		// Inter-eye distance becomes 0.32 * 112 = 35.84.
+		const re = apply(t, 200, 120);
+		const le = apply(t, 250, 120);
+		expect(Math.hypot(le.x - re.x, le.y - re.y)).toBeCloseTo(35.84, 3);
+	});
+
+	it("rotates a tilted eye-line horizontal", () => {
+		const t = faceAlignTransform(
+			[
+				[0.4, 0.28],
+				[0.5, 0.32], // eyes slant down-right
+				[0.45, 0.35],
+				[0.47, 0.4],
+				[0.43, 0.4],
+			],
+			500,
+			400,
+		)!;
+		const re = apply(t, 200, 112);
+		const le = apply(t, 250, 128);
+		// After alignment both eyes share the same y.
+		expect(re.y).toBeCloseTo(le.y, 3);
 	});
 });
