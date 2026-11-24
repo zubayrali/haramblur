@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Models are pinned by SHA-256 in scripts/fetch-models.ts; the cache key
+      # is the pinned hash so a model change busts the cache automatically.
+      - uses: actions/cache@v4
+        with:
+          path: public/models
+          key: models-320n-c15d8273adad2d0a92f014cc69ab2d6c311a06777a55545f2c4eb46f51911f0f
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm models:fetch
+      - run: pnpm check
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm build:firefox
+
+      - run: pnpm exec playwright install chromium --with-deps
+
+      # Extensions need a headed browser; xvfb provides a virtual display.
+      - run: xvfb-run -a pnpm test:e2e

@@ -1,0 +1,87 @@
+{
+	"extName": {
+		"message": "HaramBlur"
+	},
+	"extDescription": {
+		"message": "Protect your privacy and uphold Islamic values by auto detecting & blurring images and videos of unwanted or impermissible content."
+	},
+	"settings": {
+		"message": "الإعدادات"
+	},
+	"blurryStart": {
+		"message": "تشويش الوسائط مسبقا:"
+	},
+	"blurryStartTooltip": {
+		"message": "عند تفعيل هذا الخيار سيتم تشويش جميع الصور ومقاطع الفيديو مسبقا حتى يبدأ الكشف."
+	},
+	"blurAmount": {
+		"message": "كمية التشويش: $amount$%",
+		"placeholders": {
+			"amount": { "content": "$1", "example": "20" }
+		}
+	},
+	"grayscale": {
+		"message": "رمادي:"
+	},
+	"strictness": {
+		"message": "الدقة: $percent$%",
+		"placeholders": {
+			"percent": { "content": "$1", "example": "50" }
+		}
+	},
+	"mediaToBlur": {
+		"message": "الوسائط التي يجب تشويشها"
+	},
+	"blurImages": {
+		"message": "الصور"
+	},
+	"blurVideos": {
+		"message": "مقاطع الفيديو"
+	},
+	"facesToBlur": {
+		"message": "الوجوه التي يجب تشويشها"
+	},
+	"blurMale": {
+		"message": "الذكور"
+	},
+	"blurFemale": {
+		"message": "الإناث"
+	},
+	"unblurOnHover": {
+		"message": "إلغاء التشويش عند المرور بالمؤشر"
+	},
+	"unblurImages": {
+		"message": "الصور"
+	},
+	"unblurVideos": {
+		"message": "مقاطع الفيديو"
+	},
+	"requiresRefresh": {
+		"message": " (يتطلب إعادة تحميل الصفحة):"
+	},
+	"refreshMessage": {
+		"message": "أعد تحميل الصفحة لترى التغييرات."
+	},
+	"supportProject": {
+		"message": "دعم المشروع"
+	},
+	"feedbackPrompt": {
+		"message": "نحب أن نسمع رأيك عبر $form$ أو $email$ ❤️",
+		"placeholders": {
+			"form": { "content": "$1", "example": "الاستمارة" },
+			"email": { "content": "$2", "example": "البريد الإلكتروني" }
+		}
+	},
+	"detectionForSite": {
+		"message": "الفحص $status$ لهذا الموقع",
+		"placeholders": {
+			"status": { "content": "$1", "example": "مفعل" }
+		}
+	},
+	"detectionOn": {
+		"message": "مفعل"
+	},
+	"detectionOff": {
+		"message": "معطل"
+	}
+}

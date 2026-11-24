@@ -1,0 +1,87 @@
+{
+	"extName": {
+		"message": "HaramBlur"
+	},
+	"extDescription": {
+		"message": "Protect your privacy and uphold Islamic values by auto detecting & blurring images and videos of unwanted or impermissible content."
+	},
+	"settings": {
+		"message": "Ayarlar"
+	},
+	"blurryStart": {
+		"message": "Yüklenirken bulanıklaştır"
+	},
+	"blurryStartTooltip": {
+		"message": "Etkinleştirildiğinde, tüm resimler ve videolar, algılama başlayana kadar varsayılan olarak bulanıklaştırılır."
+	},
+	"blurAmount": {
+		"message": "Bulanıklaştırma seviyesi: $amount$%",
+		"placeholders": {
+			"amount": { "content": "$1", "example": "20" }
+		}
+	},
+	"grayscale": {
+		"message": "Grileştir:"
+	},
+	"strictness": {
+		"message": "Katılık: $percent$%",
+		"placeholders": {
+			"percent": { "content": "$1", "example": "50" }
+		}
+	},
+	"mediaToBlur": {
+		"message": "Bulanıklaştırılacak medya"
+	},
+	"blurImages": {
+		"message": "Resimler"
+	},
+	"blurVideos": {
+		"message": "Videolar"
+	},
+	"facesToBlur": {
+		"message": "Bulanıklaştırılacak yüzler"
+	},
+	"blurMale": {
+		"message": "Erkek"
+	},
+	"blurFemale": {
+		"message": "Kadın"
+	},
+	"unblurOnHover": {
+		"message": "Üzerine gelindiğinde bulanıklığı kaldır"
+	},
+	"unblurImages": {
+		"message": "Resimler"
+	},
+	"unblurVideos": {
+		"message": "Videolar"
+	},
+	"requiresRefresh": {
+		"message": " (sayfa yenileme gerektirir):"
+	},
+	"refreshMessage": {
+		"message": "Değişiklikleri görmek için sayfayı yenile."
+	},
+	"supportProject": {
+		"message": "Projeyi destekle"
+	},
+	"feedbackPrompt": {
+		"message": "Geri dönüşlerinizi $form$ veya $email$ yoluyla bize bildirin ❤️",
+		"placeholders": {
+			"form": { "content": "$1", "example": "Form" },
+			"email": { "content": "$2", "example": "E-mail" }
+		}
+	},
+	"detectionForSite": {
+		"message": "Bu web sitesi için algılama $status$",
+		"placeholders": {
+			"status": { "content": "$1", "example": "Açık" }
+		}
+	},
+	"detectionOn": {
+		"message": "Açık"
+	},
+	"detectionOff": {
+		"message": "Kapalı"
+	}
+}
