@@ -36,26 +36,49 @@ export function exposedThreshold(strictness: number): number {
 	return lerp(EXPOSED_THRESHOLD_MAX, EXPOSED_THRESHOLD_MIN, clamp01(strictness));
 }
 
+/**
+ * The score threshold a label must meet to cause a blur under these
+ * settings, or null when the label can never blur (covered parts, gendered
+ * classes whose toggle is off).
+ */
+export function blurThresholdFor(
+	label: Detection["label"],
+	settings: PolicySettings,
+): number | null {
+	if (LABEL_GROUPS.exposed.has(label)) return exposedThreshold(settings.strictness);
+	if (LABEL_GROUPS.female.has(label)) {
+		return settings.blurFemale ? faceThreshold(settings.strictness) : null;
+	}
+	if (LABEL_GROUPS.male.has(label)) {
+		return settings.blurMale ? faceThreshold(settings.strictness) : null;
+	}
+	return null;
+}
+
 export function decide(
 	detections: readonly Detection[],
 	settings: PolicySettings,
 ): VerdictDecision {
 	if (!settings.status) return "clear";
-	const face = faceThreshold(settings.strictness);
-	const exposed = exposedThreshold(settings.strictness);
 	for (const d of detections) {
-		if (LABEL_GROUPS.exposed.has(d.label)) {
-			if (d.score >= exposed) return "blur";
-			continue;
-		}
-		if (LABEL_GROUPS.female.has(d.label)) {
-			if (settings.blurFemale && d.score >= face) return "blur";
-			continue;
-		}
-		if (LABEL_GROUPS.male.has(d.label)) {
-			if (settings.blurMale && d.score >= face) return "blur";
-		}
-		// Covered, non-gendered parts never cause a blur on their own.
+		const threshold = blurThresholdFor(d.label, settings);
+		if (threshold != null && d.score >= threshold) return "blur";
 	}
 	return "clear";
+}
+
+/**
+ * Detections that individually meet the blur bar — the regions a region-blur
+ * overlay should cover. Same per-label thresholds as `decide`, so the union
+ * of these boxes is exactly what would have triggered the whole-element blur.
+ */
+export function blurCapableDetections(
+	detections: readonly Detection[],
+	settings: PolicySettings,
+): Detection[] {
+	if (!settings.status) return [];
+	return detections.filter((d) => {
+		const threshold = blurThresholdFor(d.label, settings);
+		return threshold != null && d.score >= threshold;
+	});
 }

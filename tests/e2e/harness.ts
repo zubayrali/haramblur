@@ -64,6 +64,7 @@ export const BASE_SETTINGS = {
 	unblurVideos: false,
 	allowlist: [] as string[],
 	failClosed: true,
+	regionBlur: true,
 };
 
 /** Launch Chromium with the unpacked extension loaded. */

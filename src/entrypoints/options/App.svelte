@@ -138,6 +138,13 @@
 				testid="opt-blur-videos"
 				onchange={(v) => persist({ blurVideos: v })}
 			/>
+			<Toggle
+				label={t("regionBlur")}
+				hint={t("regionBlurHint")}
+				bind:checked={s.regionBlur}
+				testid="opt-region-blur"
+				onchange={(v) => persist({ regionBlur: v })}
+			/>
 		</Section>
 
 		<Section title={t("facesToBlur")} testid="section-faces">

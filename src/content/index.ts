@@ -1,3 +1,4 @@
+import { decide } from "../shared/policy";
 import { onMessage, type Verdict } from "../shared/protocol";
 import { getSettings, type Settings, watchSettings } from "../shared/settings-store";
 import {
@@ -22,7 +23,8 @@ import {
 import { classifyImage } from "./engine";
 import { captureMediaFrame } from "./frames";
 import { TaskQueue } from "./queue";
-import { isAllowlisted, reasonsToJson, redecide } from "./site";
+import { applyBlurMode, removeRegionBlur, syncRegionBlur } from "./region";
+import { isAllowlisted, reasonsFromJson, reasonsToJson } from "./site";
 import { createVideoManager, type VideoManager } from "./video";
 
 /**
@@ -52,7 +54,7 @@ export async function startContentPipeline(): Promise<void> {
 	const kindEnabled = (kind: MediaKind, s: Settings) =>
 		kind === "video" ? s.blurVideos : s.blurImages;
 
-	function applyVerdict(el: HTMLElement, verdict: Verdict): void {
+	function applyVerdict(el: HTMLElement, verdict: Verdict, kind: MediaKind): void {
 		if (el instanceof HTMLVideoElement) {
 			// Once the sampler has verdicts of its own it owns the element's
 			// state; a late poster verdict must not override it.
@@ -63,9 +65,15 @@ export async function startContentPipeline(): Promise<void> {
 		setState(el, verdict.decision);
 		if (verdict.decision === "blur") {
 			// A user-initiated reveal wins over a late-arriving verdict.
-			if (el.dataset.hbReveal !== "click") setBlurred(el, true);
+			if (el.dataset.hbReveal !== "click") {
+				applyBlurMode(el, verdict.reasons, kind, settings);
+			} else {
+				setBlurred(el, false);
+				removeRegionBlur(el);
+			}
 		} else {
 			setBlurred(el, false);
+			removeRegionBlur(el);
 		}
 	}
 
@@ -117,9 +125,12 @@ export async function startContentPipeline(): Promise<void> {
 		const prevUrl = urlByElement.get(el);
 		if (prevUrl === candidate.url) return;
 		urlByElement.set(el, candidate.url);
-		// Fail closed: blur while the verdict is outstanding.
+		// Fail closed: blur while the verdict is outstanding. A re-classified
+		// element drops its stale region overlay — the pending whole-element
+		// blur takes over until the new verdict lands.
 		setState(el, "pending");
 		setBlurred(el, blurOnUncertainty(settings));
+		removeRegionBlur(el);
 		// The video sampler owns frame classification for <video> elements;
 		// the poster/src URL still gets the one-shot image classification.
 		if (isVideo) videos.observe(el);
@@ -130,7 +141,7 @@ export async function startContentPipeline(): Promise<void> {
 			.enqueue(key, () => classify(candidate, nonce), candidate.visible ? "visible" : "background")
 			.then((verdict) => {
 				pendingKeyByElement.delete(el);
-				applyVerdict(el, verdict);
+				applyVerdict(el, verdict, candidate.kind);
 			})
 			.catch(() => {
 				pendingKeyByElement.delete(el);
@@ -141,12 +152,15 @@ export async function startContentPipeline(): Promise<void> {
 	function onRemoved(el: HTMLElement): void {
 		if (el.dataset.hbKind == null) return; // never a candidate
 		if (el instanceof HTMLVideoElement) videos.unobserve(el);
+		removeRegionBlur(el);
 		clearAll(el);
 	}
 
 	function onVisible(el: HTMLElement): void {
 		const key = pendingKeyByElement.get(el);
 		if (key != null) queue.prioritize(key);
+		// Layout may have drifted while the element was off-screen.
+		syncRegionBlur(el);
 	}
 
 	function start(): void {
@@ -160,6 +174,7 @@ export async function startContentPipeline(): Promise<void> {
 		urlByElement = new WeakMap();
 		pendingKeyByElement = new WeakMap();
 		for (const el of document.querySelectorAll<HTMLElement>("[data-hb-kind]")) {
+			removeRegionBlur(el);
 			clearAll(el);
 		}
 	}
@@ -174,20 +189,30 @@ export async function startContentPipeline(): Promise<void> {
 			if (!kindEnabled(kind, next)) {
 				setState(el, "clear");
 				setBlurred(el, false);
+				removeRegionBlur(el);
 				continue;
 			}
 			const reasons = el.dataset.hbReasons;
 			if (reasons != null) {
-				const decision = redecide(reasons, next);
+				const detections = reasonsFromJson(reasons);
+				const decision = decide(detections, next);
 				setState(el, decision);
 				if (decision === "blur") {
-					if (el.dataset.hbReveal !== "click") setBlurred(el, true);
+					// A user-initiated reveal wins over a late-arriving verdict.
+					if (el.dataset.hbReveal !== "click") {
+						applyBlurMode(el, detections, kind, next);
+					} else {
+						setBlurred(el, false);
+						removeRegionBlur(el);
+					}
 				} else {
 					setBlurred(el, false);
+					removeRegionBlur(el);
 				}
 			} else {
 				// Pending or erroring: the blur follows the current fail mode.
 				setBlurred(el, blurOnUncertainty(next));
+				removeRegionBlur(el);
 			}
 		}
 	}
@@ -196,14 +221,17 @@ export async function startContentPipeline(): Promise<void> {
 	document.addEventListener(
 		"click",
 		(ev) => {
-			const el = (ev.target as Element | null)?.closest?.("[data-hb-blur]");
+			const el = (ev.target as Element | null)?.closest?.("[data-hb-blur],[data-hb-region]");
 			if (!(el instanceof HTMLElement)) return;
 			const kind = el.dataset.hbKind as MediaKind | undefined;
 			if (kind == null || !revealAllowed(kind, settings)) return;
 			// A video's blur lives on its inline filter too — the manager must
 			// clear it, not just the data attribute.
 			if (el instanceof HTMLVideoElement) videos.reveal(el);
-			else reveal(el);
+			else {
+				reveal(el);
+				removeRegionBlur(el);
+			}
 		},
 		true,
 	);
@@ -226,7 +254,10 @@ export async function startContentPipeline(): Promise<void> {
 		const el = findMediaBySrc(data.srcUrl);
 		if (el == null) return;
 		if (el instanceof HTMLVideoElement) videos.reveal(el);
-		else reveal(el);
+		else {
+			reveal(el);
+			removeRegionBlur(el);
+		}
 	});
 	onMessage("recheckMedia", ({ data }) => {
 		const el = findMediaBySrc(data.srcUrl);

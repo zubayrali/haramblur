@@ -50,6 +50,12 @@
 	"blurVideos": {
 		"message": "Videolar"
 	},
+	"regionBlur": {
+		"message": "Yalnızca algılanan bölgeleri bulandır"
+	},
+	"regionBlurHint": {
+		"message": "Görseller için: tüm resim yerine yalnızca algılanan alanları bulandırır. Videolar yine tamamen bulanır."
+	},
 	"facesToBlur": {
 		"message": "Bulanıklaştırılacak yüzler"
 	},

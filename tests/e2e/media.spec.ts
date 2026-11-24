@@ -89,11 +89,14 @@ test("media pipeline: classify, blur, srcset/picture, background, iframe, video"
 		// is the cold-start guarantee (engine may still be booting).
 		await page.waitForSelector('[data-hb-state="pending"][data-hb-blur]', { timeout: 20_000 });
 
-		// Images classify: portrait-woman blurs, the gradient clears.
+		// Images classify: portrait-woman blurs, the gradient clears. With
+		// regionBlur on (default) the blur is an overlay of detection boxes —
+		// data-hb-region, not the whole-element data-hb-blur.
 		await expect(page.locator("#p-woman")).toHaveAttribute("data-hb-state", "blur", {
 			timeout: 30_000,
 		});
-		await expect(page.locator("#p-woman")).toHaveAttribute("data-hb-blur", "1");
+		await expect(page.locator("#p-woman")).toHaveAttribute("data-hb-region", "1");
+		expect(await page.locator("#p-woman").getAttribute("data-hb-blur")).toBeNull();
 		await expect(page.locator("#p-woman")).toHaveAttribute("data-hb-reasons", /FACE_FEMALE/);
 		await expect(page.locator("#grad")).toHaveAttribute("data-hb-state", "clear", {
 			timeout: 30_000,
@@ -108,11 +111,12 @@ test("media pipeline: classify, blur, srcset/picture, background, iframe, video"
 			timeout: 30_000,
 		});
 
-		// CSS background image.
+		// CSS background image — background kind always uses whole-element blur.
 		await expect(page.locator("#bg")).toHaveAttribute("data-hb-kind", "background");
 		await expect(page.locator("#bg")).toHaveAttribute("data-hb-state", "blur", {
 			timeout: 30_000,
 		});
+		await expect(page.locator("#bg")).toHaveAttribute("data-hb-blur", "1");
 
 		// An image inserted seconds after load is processed (MutationObserver).
 		await expect(page.locator("#late")).toHaveAttribute("data-hb-state", "blur", {
@@ -159,22 +163,84 @@ test("reveal on click and hover respect settings", async () => {
 			timeout: 30_000,
 		});
 
-		// Click reveal: permanent.
+		// Click reveal: permanent — works from region mode too; the overlay
+		// and data-hb-region are removed along with the blur state.
 		await page.locator("#p-woman").click();
 		await expect(page.locator("#p-woman")).toHaveAttribute("data-hb-reveal", "click");
 		expect(await page.locator("#p-woman").getAttribute("data-hb-blur")).toBeNull();
+		expect(await page.locator("#p-woman").getAttribute("data-hb-region")).toBeNull();
+		expect(await page.locator("#p-woman + .hb-region-overlay").count()).toBe(0);
 
-		// Hover reveal: pure CSS after the 1s delay; computed filter drops to 0.
+		// Hover reveal on a region-blurred image fades the overlay out after
+		// the 1s delay (the element itself is never CSS-filtered). Wait for
+		// the verdict first — hovering a still-pending image finds no overlay.
+		await expect(page.locator("#srcset-img")).toHaveAttribute("data-hb-region", "1", {
+			timeout: 30_000,
+		});
 		await page.locator("#srcset-img").hover();
 		await page.waitForFunction(
 			() => {
-				const el = document.getElementById("srcset-img");
-				if (el == null) return false;
-				const f = getComputedStyle(el).filter;
-				return f === "none" || f.startsWith("blur(0px)");
+				const overlay = document.querySelector(
+					"#srcset-img + .hb-region-overlay",
+				) as HTMLElement | null;
+				if (overlay == null) return false;
+				return parseFloat(getComputedStyle(overlay).opacity) < 0.5;
 			},
 			undefined,
 			{ timeout: 15_000, polling: 250 },
+		);
+	} finally {
+		await closeExtension(context, userDataDir);
+		await close();
+	}
+});
+
+test("region blur: overlay tracks the image and toggles with settings", async () => {
+	const { context, extensionId, userDataDir } = await launchExtension();
+	const { url, close } = await serveFixtures({ "/": PAGE, "/frame.html": FRAME });
+	try {
+		const ext = await context.newPage();
+		await ext.goto(`chrome-extension://${extensionId}/popup.html`);
+		await writeSettings(ext, { strictness: 1 });
+
+		const page = await context.newPage();
+		await page.goto(url);
+		await expect(page.locator("#p-woman")).toHaveAttribute("data-hb-state", "blur", {
+			timeout: 30_000,
+		});
+		await expect(page.locator("#p-woman")).toHaveAttribute("data-hb-region", "1");
+
+		// The overlay is the image's next sibling, covers its box, and holds
+		// one backdrop-filter child per blur-capable detection.
+		const overlay = page.locator("#p-woman + .hb-region-overlay");
+		await expect(overlay).toBeVisible();
+		expect(await overlay.locator(".hb-region").count()).toBeGreaterThan(0);
+		const imgBox = await page.locator("#p-woman").boundingBox();
+		const overlayBox = await overlay.boundingBox();
+		expect(imgBox).not.toBeNull();
+		expect(overlayBox).not.toBeNull();
+		expect(Math.abs(overlayBox!.x - imgBox!.x)).toBeLessThanOrEqual(2);
+		expect(Math.abs(overlayBox!.y - imgBox!.y)).toBeLessThanOrEqual(2);
+		expect(Math.abs(overlayBox!.width - imgBox!.width)).toBeLessThanOrEqual(2);
+		expect(Math.abs(overlayBox!.height - imgBox!.height)).toBeLessThanOrEqual(2);
+
+		// Turning regionBlur off re-decides from stored detections: the same
+		// verdict flips to whole-element blur and the overlay is removed.
+		await writeSettings(ext, { regionBlur: false });
+		await expect(page.locator("#p-woman")).toHaveAttribute("data-hb-blur", "1", {
+			timeout: 15_000,
+		});
+		expect(await page.locator("#p-woman").getAttribute("data-hb-region")).toBeNull();
+		expect(await page.locator(".hb-region-overlay").count()).toBe(0);
+
+		// And back on: region mode returns without re-classifying.
+		await writeSettings(ext, { regionBlur: true });
+		await expect(page.locator("#p-woman")).toHaveAttribute("data-hb-region", "1", {
+			timeout: 15_000,
+		});
+		expect(await page.locator("#p-woman").getAttribute("data-hb-blur")).toBeNull();
+		expect(await page.locator("#p-woman + .hb-region-overlay .hb-region").count()).toBeGreaterThan(
+			0,
 		);
 	} finally {
 		await closeExtension(context, userDataDir);

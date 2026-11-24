@@ -36,6 +36,12 @@ export interface Settings {
 	 * (the default per PLAN.md, "fail closed").
 	 */
 	failClosed: boolean;
+	/**
+	 * Blur only the detected regions of an image instead of the whole element
+	 * (PLAN.md v1.1 "region blur", pulled forward). Videos and background
+	 * images always use whole-element blur.
+	 */
+	regionBlur: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -52,6 +58,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	unblurVideos: false,
 	allowlist: [],
 	failClosed: true,
+	regionBlur: true,
 };
 
 /** Shape stored by HaramBlur 0.2.x under `chrome.storage.sync["hb-settings"]`. */
@@ -97,5 +104,6 @@ export function migrateLegacySettings(legacy: LegacySettings): Settings {
 			? legacy.whitelist.filter((h): h is string => typeof h === "string")
 			: [],
 		failClosed: DEFAULT_SETTINGS.failClosed,
+		regionBlur: DEFAULT_SETTINGS.regionBlur,
 	};
 }

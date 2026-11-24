@@ -66,6 +66,19 @@ export function applyBlurStyles(settings: Settings): void {
 	transition: filter 0.1s ease !important;
 	opacity: unset !important;
 }
+/* Region blur (region.ts): an absolutely-positioned sibling covers the
+   element; each .hb-region backdrop-filters only its detection box. */
+.hb-region-overlay {
+	position: absolute;
+	pointer-events: none;
+	transition: opacity 0.1s ease;
+}
+.hb-region {
+	position: absolute;
+	backdrop-filter: blur(var(--hb-blur)) grayscale(var(--hb-gray));
+	-webkit-backdrop-filter: blur(var(--hb-blur)) grayscale(var(--hb-gray));
+	border-radius: 12%;
+}
 @keyframes hb-loading {
 	0%, 100% { filter: blur(var(--hb-blur)) grayscale(var(--hb-gray)); }
 	50% { filter: blur(calc(var(--hb-blur) * 0.7)) grayscale(var(--hb-gray)); }
@@ -90,6 +103,15 @@ ${hoverSelectors.join(",\n")} {
 	transition: filter 0.45s ease !important;
 	transition-delay: var(--hb-reveal-delay) !important;
 	animation: none !important;
+}`;
+	}
+	// Region mode: fade the overlay out on hover (it's the next sibling).
+	if (settings.unblurImages && settings.regionBlur) {
+		css += `
+[data-hb-region][data-hb-kind="image"]:hover + .hb-region-overlay {
+	opacity: 0 !important;
+	transition: opacity 0.45s ease !important;
+	transition-delay: var(--hb-reveal-delay) !important;
 }`;
 	}
 	style.textContent = css;
@@ -130,6 +152,7 @@ export function clearAll(el: HTMLElement): void {
 		"hbVisible",
 		"hbReasons",
 		"hbReveal",
+		"hbRegion",
 	]) {
 		delete el.dataset[key];
 	}

@@ -40,17 +40,26 @@ export function isAllowlisted(hostname: string, allowlist: readonly string[]): b
 export interface ReasonEntry {
 	label: Detection["label"];
 	score: number;
+	/** Normalized [x, y, w, h] over the source media; needed for region blur. */
+	box?: Detection["box"];
 }
 
-/** Serialize verdict reasons as `[{label, score}]` JSON for `data-hb-reasons`. */
+/** Serialize verdict reasons as `[{label, score, box?}]` JSON for `data-hb-reasons`. */
 export function reasonsToJson(detections: readonly Detection[]): string {
-	const reasons: ReasonEntry[] = detections.map((d) => ({ label: d.label, score: d.score }));
+	const reasons: ReasonEntry[] = detections.map((d) => ({
+		label: d.label,
+		score: d.score,
+		box: d.box,
+	}));
 	return JSON.stringify(reasons);
 }
 
+const isBox = (v: unknown): v is Detection["box"] =>
+	Array.isArray(v) && v.length === 4 && v.every((n) => typeof n === "number" && Number.isFinite(n));
+
 /**
- * Parse `data-hb-reasons` back into detections. `decide` never reads `box`, so
- * parsed entries carry a zeroed box to keep the real `Detection` type.
+ * Parse `data-hb-reasons` back into detections. Entries written before boxes
+ * were persisted carry a zeroed box; `decide` never reads `box`.
  */
 export function reasonsFromJson(json: string): Detection[] {
 	try {
@@ -65,8 +74,8 @@ export function reasonsFromJson(json: string): Detection[] {
 			) {
 				return [];
 			}
-			const { label, score } = item as ReasonEntry;
-			return [{ label, score, box: [0, 0, 0, 0] }];
+			const { label, score, box } = item as ReasonEntry;
+			return [{ label, score, box: isBox(box) ? box : [0, 0, 0, 0] }];
 		});
 	} catch {
 		return [];

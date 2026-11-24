@@ -50,6 +50,12 @@
 	"blurVideos": {
 		"message": "Videos"
 	},
+	"regionBlur": {
+		"message": "Blur only detected regions"
+	},
+	"regionBlurHint": {
+		"message": "For images: blur just the detected areas instead of the whole picture. Videos still blur fully."
+	},
 	"facesToBlur": {
 		"message": "Faces to Blur"
 	},
