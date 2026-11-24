@@ -78,8 +78,12 @@ export function isClassifiableUrl(url: string | null | undefined): url is string
 		return mime.startsWith("image/") || mime.startsWith("video/");
 	}
 	try {
-		const pathname = new URL(url, document.baseURI).pathname.toLowerCase();
+		const u = new URL(url, document.baseURI);
+		const pathname = u.pathname.toLowerCase();
 		if (pathname.endsWith(".svg")) return false;
+		// `<img src="">`/`src="/"` resolves to the page URL itself — that's
+		// HTML, never media. Classifying it just burns an engine request.
+		if (u.origin + u.pathname === location.origin + location.pathname) return false;
 	} catch {
 		return false;
 	}

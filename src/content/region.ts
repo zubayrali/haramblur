@@ -352,7 +352,12 @@ function clipRectFor(el: HTMLElement, rect: DOMRect): PixelRect | null {
 	let x1 = rect.right;
 	let y1 = rect.bottom;
 	let node = parentAcrossShadow(el);
-	while (node != null && node !== document.documentElement) {
+	// `document.body` never clips: per CSS Overflow its overflow-* values
+	// propagate to the viewport when the root element's are visible, and its
+	// border box can be degenerate anyway (YouTube scrolls inside
+	// `ytd-page-manager`; body reports h:0). The portal's own fixed inset:0
+	// box already provides the viewport clip.
+	while (node != null && node !== document.documentElement && node !== document.body) {
 		const cs = getComputedStyle(node);
 		const clips =
 			cs.overflow !== "visible" ||
