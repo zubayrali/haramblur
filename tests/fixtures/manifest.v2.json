@@ -1,0 +1,145 @@
+{
+	"comment": "Benchmark manifest v2 (WP-B). Two splits: 'dev' may be used for threshold/model tuning; 'test' is HELD-OUT — never tune against it. Each entry: decision = expected verdict at default settings; category = reporting bucket; expect = human-labelled NudeNet classes present (informational). Add images to tests/fixtures/ and list them under the right split+category. Target ~60 dev / ~60-100 test across all categories.",
+	"categories": [
+		"female-portrait",
+		"female-group",
+		"art-portrait",
+		"explicit",
+		"suggestive",
+		"anime",
+		"male-portrait",
+		"hard-negative",
+		"animal",
+		"other-negative"
+	],
+	"splits": {
+		"dev": {
+			"files": {
+				"woman-camera.jpg": {
+					"decision": "blur",
+					"category": "female-portrait",
+					"expect": ["FACE_FEMALE"]
+				},
+				"woman-elderly-gambian.jpg": {
+					"decision": "blur",
+					"category": "female-portrait",
+					"expect": ["FACE_FEMALE"]
+				},
+				"woman-model-1989.jpg": {
+					"decision": "blur",
+					"category": "female-portrait",
+					"expect": ["FACE_FEMALE"]
+				},
+				"women-group-kaduna.jpg": {
+					"decision": "blur",
+					"category": "female-group",
+					"expect": ["FACE_FEMALE", "FACE_MALE"]
+				},
+				"painting-woman-vermeer.jpg": {
+					"decision": "blur",
+					"category": "art-portrait",
+					"expect": ["FACE_FEMALE"]
+				},
+				"nude-goya-maja.jpg": {
+					"decision": "blur",
+					"category": "explicit",
+					"expect": ["FEMALE_GENITALIA_EXPOSED", "FEMALE_BREAST_EXPOSED"]
+				},
+				"nude-david.jpg": {
+					"decision": "blur",
+					"category": "explicit",
+					"expect": ["MALE_GENITALIA_EXPOSED", "FACE_MALE"]
+				},
+				"man-old-face.jpg": {
+					"decision": "clear",
+					"category": "male-portrait",
+					"expect": ["FACE_MALE"]
+				},
+				"car-paris-1910.jpg": {
+					"decision": "clear",
+					"category": "hard-negative",
+					"expect": ["FACE_MALE"]
+				},
+				"cat-asian-closeup.jpg": {
+					"decision": "clear",
+					"category": "animal",
+					"expect": []
+				},
+				"cartoon-avatar.png": {
+					"decision": "clear",
+					"category": "other-negative",
+					"expect": []
+				},
+				"gradient.png": {
+					"decision": "clear",
+					"category": "other-negative",
+					"expect": []
+				}
+			}
+		},
+		"test": {
+			"files": {
+				"portrait-woman.jpg": {
+					"decision": "blur",
+					"category": "female-portrait",
+					"expect": ["FACE_FEMALE"]
+				},
+				"woman-studio-portrait.jpg": {
+					"decision": "blur",
+					"category": "female-portrait",
+					"expect": ["FACE_FEMALE"]
+				},
+				"woman-kutia.jpg": {
+					"decision": "blur",
+					"category": "female-portrait",
+					"expect": ["FACE_FEMALE"]
+				},
+				"woman-thumb.jpg": {
+					"decision": "blur",
+					"category": "female-portrait",
+					"expect": ["FACE_FEMALE"]
+				},
+				"women-group-wide.jpg": {
+					"decision": "blur",
+					"category": "female-group",
+					"expect": ["FACE_FEMALE", "FACE_MALE"]
+				},
+				"women-punjabi-1900s.jpg": {
+					"decision": "blur",
+					"category": "female-group",
+					"expect": ["FACE_FEMALE"]
+				},
+				"painting-woman-ingres.jpg": {
+					"decision": "blur",
+					"category": "art-portrait",
+					"expect": ["FACE_FEMALE"]
+				},
+				"nude-cabanel-venus.jpg": {
+					"decision": "blur",
+					"category": "explicit",
+					"expect": ["BUTTOCKS_EXPOSED", "FEMALE_BREAST_EXPOSED"]
+				},
+				"nude-titian-venus.jpg": {
+					"decision": "blur",
+					"category": "explicit",
+					"expect": ["FEMALE_BREAST_EXPOSED", "FACE_FEMALE"]
+				},
+				"hooded-figure.jpg": {
+					"decision": "clear",
+					"category": "hard-negative",
+					"expect": []
+				},
+				"man-bw-portrait.jpg": {
+					"decision": "clear",
+					"category": "male-portrait",
+					"expect": ["FACE_MALE"]
+				},
+				"dog.jpg": {
+					"decision": "clear",
+					"category": "animal",
+					"expect": []
+				}
+			}
+		}
+	}
+}
