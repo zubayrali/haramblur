@@ -1,16 +1,31 @@
 /**
- * Chrome engine host (WP1 owns the real engine). The stub verifies the Worker
- * wiring: it spawns a module worker and round-trips a ping.
+ * Chrome engine host: an offscreen document that owns the inference Worker
+ * (MV3 service workers cannot spawn one). Firefox has no offscreen API — the
+ * same `createEngineHost` code runs inside the background page there.
  */
-declare const self: Window;
+import { browser } from "wxt/browser";
+import { createEngineHost } from "../../engine/host";
+import { onMessage } from "../../shared/protocol";
 
-const worker = new Worker(new URL("./worker.ts", import.meta.url), {
-	type: "module",
-});
-worker.onmessage = (event: MessageEvent) => {
-	console.debug("[haramblur] engine worker replied:", event.data);
-};
-worker.onerror = (event) => {
-	console.error("[haramblur] engine worker failed:", event);
-};
-worker.postMessage({ type: "ping" });
+// Host construction must never take the message listeners down with it —
+// a boot failure is reported through engineHostStatus instead.
+let host: ReturnType<typeof createEngineHost> | null = null;
+let bootError: string | null = null;
+try {
+	host = createEngineHost({
+		modelUrl: browser.runtime.getURL("/models/320n.onnx"),
+		wasmBase: `${browser.runtime.getURL("/")}ort/`,
+	});
+} catch (e) {
+	bootError = String(e);
+}
+
+// Internal protocol — reached only via the background's forwarding.
+onMessage("engineRun", ({ data }) =>
+	host == null ? { error: `host boot failed: ${bootError}` } : host.run(data),
+);
+onMessage("engineHostStatus", () =>
+	host == null
+		? { state: "failed", backend: null, error: `host boot failed: ${bootError}` }
+		: host.status(),
+);

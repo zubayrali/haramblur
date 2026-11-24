@@ -24,6 +24,7 @@
 		"check": "biome check && tsc --noEmit && svelte-check --fail-on-warnings",
 		"test": "vitest run",
 		"test:e2e": "playwright test",
+		"bench": "tsx scripts/bench-engine.ts",
 		"models:fetch": "tsx scripts/fetch-models.ts"
 	},
 	"dependencies": {

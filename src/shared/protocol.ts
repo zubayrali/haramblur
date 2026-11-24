@@ -1,5 +1,6 @@
 import { defineExtensionMessaging } from "@webext-core/messaging";
 import type { NudeNetLabel } from "./labels";
+import type { Settings } from "./settings";
 
 /** A single model detection; `box` is normalized 0..1 over the source media. */
 export interface Detection {
@@ -25,6 +26,36 @@ export interface EngineStatus {
 	backend: EngineBackend | null;
 	error?: string;
 }
+
+/**
+ * Returned instead of a `Verdict` when the engine cannot answer — the caller
+ * applies the user's fail mode (default fail closed) (docs/PLAN.md).
+ */
+export interface EngineError {
+	error: string;
+}
+
+export type ClassifyResult = Verdict | EngineError;
+
+export function isEngineError(result: ClassifyResult): result is EngineError {
+	return typeof (result as EngineError).error === "string";
+}
+
+/**
+ * A classify request forwarded from the background to the engine host.
+ * `settings` travels with the request: offscreen documents cannot touch
+ * `chrome.storage`, so the background reads settings for every call.
+ */
+export type EngineRequest =
+	| {
+			kind: "image";
+			url: string;
+			width: number;
+			height: number;
+			frameUrl?: string;
+			settings?: Settings;
+	  }
+	| { kind: "frame"; dataUrl: string; videoId: string; ts: number; settings?: Settings };
 
 export interface Pong {
 	pong: true;
@@ -56,6 +87,12 @@ export interface MediaTarget {
  * `revealMedia`/`recheckMedia` are sent to a content script via
  * `sendMessage(name, data, { tabId })`; the content pipeline (WP2) registers
  * the handlers.
+ *
+ * `classifyImage`/`classifyFrame` return a `Verdict`; when the engine cannot
+ * answer the background throws instead, which `sendMessage` surfaces as a
+ * rejection — WP2's content client applies `settings.failClosed` to it.
+ * `engineRun`/`engineHostStatus` are internal: only the engine host registers
+ * them; the background forwards public requests to it.
  */
 export interface HaramBlurProtocol {
 	ping(): Pong;
@@ -65,6 +102,8 @@ export interface HaramBlurProtocol {
 	getTabStats(data: { tabId: number }): TabStats;
 	revealMedia(data: MediaTarget): void;
 	recheckMedia(data: MediaTarget): void;
+	engineRun(request: EngineRequest): ClassifyResult;
+	engineHostStatus(): EngineStatus;
 }
 
 export const { sendMessage, onMessage } = defineExtensionMessaging<HaramBlurProtocol>();
