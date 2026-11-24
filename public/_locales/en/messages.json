@@ -266,5 +266,38 @@
 	},
 	"feedbackEmail": {
 		"message": "Email"
+	},
+	"profiles": {
+		"message": "Profiles"
+	},
+	"profilesHint": {
+		"message": "One-click presets — pick one, then fine-tune below."
+	},
+	"profile_balanced": {
+		"message": "Balanced"
+	},
+	"profile_gaze": {
+		"message": "Gaze Protection"
+	},
+	"profile_recovery": {
+		"message": "Recovery Shield"
+	},
+	"censorStyle": {
+		"message": "Censor style"
+	},
+	"censorStyleHint": {
+		"message": "How censored areas are painted. Solid hides shapes completely; static and pattern add texture."
+	},
+	"censorStyleBlur": {
+		"message": "Frosted blur"
+	},
+	"censorStyleSolid": {
+		"message": "Solid matte"
+	},
+	"censorStyleStatic": {
+		"message": "Static noise"
+	},
+	"censorStylePattern": {
+		"message": "Geometric pattern"
 	}
 }

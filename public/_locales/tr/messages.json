@@ -266,5 +266,38 @@
 	},
 	"feedbackEmail": {
 		"message": "E-posta"
+	},
+	"profiles": {
+		"message": "Hazır Ayarlar"
+	},
+	"profilesHint": {
+		"message": "Tek tıkla hazır ayarlar — birini seçin, ardından aşağıdan ince ayar yapın."
+	},
+	"profile_balanced": {
+		"message": "Dengeli"
+	},
+	"profile_gaze": {
+		"message": "Bakış Koruması"
+	},
+	"profile_recovery": {
+		"message": "İyileşme Kalkanı"
+	},
+	"censorStyle": {
+		"message": "Sansür stili"
+	},
+	"censorStyleHint": {
+		"message": "Sansürlü alanların nasıl boyanacağı. Düz renk şekilleri tamamen gizler; statik ve desen doku katar."
+	},
+	"censorStyleBlur": {
+		"message": "Buzlu bulanıklık"
+	},
+	"censorStyleSolid": {
+		"message": "Düz mat"
+	},
+	"censorStyleStatic": {
+		"message": "Statik gürültü"
+	},
+	"censorStylePattern": {
+		"message": "Geometrik desen"
 	}
 }

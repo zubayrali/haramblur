@@ -2,6 +2,7 @@
 	import { onMount } from "svelte";
 	import { browser } from "wxt/browser";
 	import { t } from "../../shared/i18n";
+	import { PROFILES, profileSettings } from "../../shared/profiles";
 	import { getSettings, settings, watchSettings } from "../../shared/settings-store";
 	import type { Settings } from "../../shared/settings";
 	import AllowlistEditor from "../../ui/AllowlistEditor.svelte";
@@ -95,6 +96,22 @@
 	</header>
 
 	{#if s}
+		<Section title={t("profiles")} testid="section-profiles">
+			<div class="flex gap-2">
+				{#each PROFILES as p (p.id)}
+					<button
+						type="button"
+						class="flex-1 rounded-md border border-gray-300 px-2 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+						data-testid={`opt-profile-${p.id}`}
+						onclick={() => persist(profileSettings(p))}
+					>
+						{t(`profile_${p.id}`)}
+					</button>
+				{/each}
+			</div>
+			<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{t("profilesHint")}</p>
+		</Section>
+
 		<Section title={t("settings")} testid="section-general">
 			<Toggle
 				label={t("masterToggle")}
@@ -186,6 +203,23 @@
 					onchange={(v) => persist({ wholeImages: v })}
 				/>
 			{/if}
+			<div class="py-1.5" data-testid="opt-censor-style">
+				<label class="block text-sm font-medium text-gray-800 dark:text-gray-100" for="censor-style">
+					{t("censorStyle")}
+				</label>
+				<p class="mb-1 text-xs text-gray-500 dark:text-gray-400">{t("censorStyleHint")}</p>
+				<select
+					id="censor-style"
+					class="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-800 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+					value={s.censorStyle}
+					onchange={(e) => persist({ censorStyle: (e.target as HTMLSelectElement).value as Settings["censorStyle"] })}
+				>
+					<option value="blur">{t("censorStyleBlur")}</option>
+					<option value="solid">{t("censorStyleSolid")}</option>
+					<option value="static">{t("censorStyleStatic")}</option>
+					<option value="pattern">{t("censorStylePattern")}</option>
+				</select>
+			</div>
 		</Section>
 
 		<Section title={t("facesToBlur")} testid="section-faces">

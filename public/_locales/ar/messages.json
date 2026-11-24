@@ -266,5 +266,38 @@
 	},
 	"feedbackEmail": {
 		"message": "البريد الإلكتروني"
+	},
+	"profiles": {
+		"message": "إعدادات مسبقة"
+	},
+	"profilesHint": {
+		"message": "إعدادات جاهزة بنقرة واحدة — اختر واحدة ثم عدّل التفاصيل أدناه."
+	},
+	"profile_balanced": {
+		"message": "متوازن"
+	},
+	"profile_gaze": {
+		"message": "حماية البصر"
+	},
+	"profile_recovery": {
+		"message": "درع التعافي"
+	},
+	"censorStyle": {
+		"message": "نمط الحجب"
+	},
+	"censorStyleHint": {
+		"message": "كيفية تلوين المناطق المحجوبة. المصمت يخفي الأشكال تمامًا؛ الضجيج والنقش يضيفان ملمسًا."
+	},
+	"censorStyleBlur": {
+		"message": "ضبابية زجاجية"
+	},
+	"censorStyleSolid": {
+		"message": "لون مصمت"
+	},
+	"censorStyleStatic": {
+		"message": "ضجيج ثابت"
+	},
+	"censorStylePattern": {
+		"message": "نقش هندسي"
 	}
 }

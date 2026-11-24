@@ -32,6 +32,8 @@ export const settings = storage.defineItem<Settings>(SETTINGS_KEY, {
 		4: (oldValue: Settings) => ({ ...DEFAULT_SETTINGS, ...oldValue }),
 		// v4 → v5: fill in coverageMode/smartCensor/escalateAreaPct/wholeImages.
 		5: (oldValue: Settings) => ({ ...DEFAULT_SETTINGS, ...oldValue }),
+		// v5 → v6: fill in censorStyle.
+		6: (oldValue: Settings) => ({ ...DEFAULT_SETTINGS, ...oldValue }),
 	},
 });
 
