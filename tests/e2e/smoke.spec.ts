@@ -85,10 +85,7 @@ test("popup and options render RTL in Arabic", async () => {
 		await page.goto(`chrome-extension://${extensionId}/popup.html`);
 		await expect(page.getByTestId("popup-root")).toBeVisible();
 		expect(await page.evaluate(() => document.documentElement.dir)).toBe("rtl");
-		await expect(page.getByTestId("master-toggle")).toHaveAttribute(
-			"aria-label",
-			"تفعيل الحماية",
-		);
+		await expect(page.getByTestId("master-toggle")).toHaveAttribute("aria-label", "تفعيل الحماية");
 
 		await page.goto(`chrome-extension://${extensionId}/options.html`);
 		await expect(page.getByTestId("options-root")).toBeVisible();
