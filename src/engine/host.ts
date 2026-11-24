@@ -16,6 +16,7 @@ import type {
 import { getSettings, type Settings } from "../shared/settings";
 import { LruCache } from "./cache";
 import { engineMachine } from "./lifecycle";
+import { mergeDetections, tileRects } from "./nudenet";
 import type { WorkerInMessage, WorkerOutMessage } from "./worker";
 
 /** Requests during `booting` wait up to this long, then answer `{error}`. */
@@ -194,7 +195,7 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 		});
 	}
 
-	function infer(bitmap: ImageBitmap): Promise<Detection[]> {
+	function infer(bitmap: ImageBitmap, detail: boolean): Promise<Detection[]> {
 		const id = ++inferSeq;
 		return new Promise((resolve, reject) => {
 			const timer = setTimeout(() => {
@@ -202,7 +203,9 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 				reject(new Error(`inference timed out after ${inferTimeoutMs}ms`));
 			}, inferTimeoutMs);
 			pending.set(id, { resolve, reject, timer });
-			worker?.postMessage({ type: "infer", id, bitmap }, [bitmap]);
+			// No transfer: the bitmap may be needed for a follow-up detail
+			// pass; the host closes it once the verdict is decided.
+			worker?.postMessage({ type: "infer", id, bitmap, detail });
 		});
 	}
 
@@ -224,16 +227,30 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 		const t0 = performance.now();
 		try {
 			const bitmap = await decodeRequest(request);
-			const detections = await infer(bitmap);
-			const s = request.settings ?? (await getS());
-			const verdict: Verdict = {
-				decision: decide(detections, s),
-				reasons: detections,
-				ms: Math.round(performance.now() - t0),
-				cached: false,
-			};
-			if (request.kind === "image") cache.set(request.url, verdict);
-			return verdict;
+			try {
+				let detections = await infer(bitmap, false);
+				const s = request.settings ?? (await getS());
+				// Detail pass (WP7): a `clear` verdict on an image bigger than the
+				// model input may hide faces letterboxed below the model floor, so
+				// re-scan overlapping crops before committing to clear.
+				if (
+					decide(detections, s) === "clear" &&
+					tileRects(bitmap.width, bitmap.height).length > 0
+				) {
+					const tiled = await infer(bitmap, true);
+					detections = mergeDetections(detections, tiled);
+				}
+				const verdict: Verdict = {
+					decision: decide(detections, s),
+					reasons: detections,
+					ms: Math.round(performance.now() - t0),
+					cached: false,
+				};
+				if (request.kind === "image") cache.set(request.url, verdict);
+				return verdict;
+			} finally {
+				bitmap.close();
+			}
 		} catch (err) {
 			return { error: errMsg(err) };
 		}

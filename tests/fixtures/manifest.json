@@ -1,9 +1,46 @@
 {
-	"comment": "Expected labels per fixture (docs/PLAN.md eval harness). 'expect' = NudeNet classes a human labels present; 'decision' = expected policy verdict.",
+	"comment": "Expected labels per fixture (docs/PLAN.md eval harness). 'expect' = NudeNet classes a human labels present; 'decision' = expected policy verdict at default settings (strictness 0.5, blurFemale on, blurMale off). See SOURCES.md for provenance/licensing.",
 	"files": {
 		"portrait-woman.jpg": { "expect": ["FACE_FEMALE"], "decision": "blur" },
 		"woman-camera.jpg": { "expect": ["FACE_FEMALE"], "decision": "blur" },
+		"woman-elderly-gambian.jpg": { "expect": ["FACE_FEMALE"], "decision": "blur" },
+		"woman-studio-portrait.jpg": { "expect": ["FACE_FEMALE"], "decision": "blur" },
+		"woman-model-1989.jpg": { "expect": ["FACE_FEMALE"], "decision": "blur" },
+		"woman-kutia.jpg": { "expect": ["FACE_FEMALE"], "decision": "blur" },
+		"woman-thumb.jpg": { "expect": ["FACE_FEMALE"], "decision": "blur" },
+		"women-group-kaduna.jpg": {
+			"expect": ["FACE_FEMALE", "FACE_MALE"],
+			"decision": "blur"
+		},
+		"women-group-wide.jpg": {
+			"expect": ["FACE_FEMALE", "FACE_MALE"],
+			"decision": "blur"
+		},
+		"women-punjabi-1900s.jpg": { "expect": ["FACE_FEMALE"], "decision": "blur" },
+		"painting-woman-vermeer.jpg": { "expect": ["FACE_FEMALE"], "decision": "blur" },
+		"painting-woman-ingres.jpg": { "expect": ["FACE_FEMALE"], "decision": "blur" },
+		"nude-cabanel-venus.jpg": {
+			"expect": ["BUTTOCKS_EXPOSED", "FEMALE_BREAST_EXPOSED"],
+			"decision": "blur"
+		},
+		"nude-goya-maja.jpg": {
+			"expect": ["FEMALE_GENITALIA_EXPOSED", "FEMALE_BREAST_EXPOSED"],
+			"decision": "blur"
+		},
+		"nude-titian-venus.jpg": {
+			"expect": ["FEMALE_BREAST_EXPOSED", "FACE_FEMALE"],
+			"decision": "blur"
+		},
+		"nude-david.jpg": {
+			"expect": ["MALE_GENITALIA_EXPOSED", "FACE_MALE"],
+			"decision": "blur"
+		},
 		"hooded-figure.jpg": { "expect": [], "decision": "clear" },
+		"man-old-face.jpg": { "expect": ["FACE_MALE"], "decision": "clear" },
+		"man-bw-portrait.jpg": { "expect": ["FACE_MALE"], "decision": "clear" },
+		"car-paris-1910.jpg": { "expect": ["FACE_MALE"], "decision": "clear" },
+		"cat-asian-closeup.jpg": { "expect": [], "decision": "clear" },
+		"cartoon-avatar.png": { "expect": [], "decision": "clear" },
 		"dog.jpg": { "expect": [], "decision": "clear" },
 		"gradient.png": { "expect": [], "decision": "clear" }
 	}

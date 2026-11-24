@@ -4,7 +4,8 @@ import type { WorkerInMessage, WorkerOutMessage } from "../../src/engine/worker"
 import type { Detection, EngineBackend, EngineRequest } from "../../src/shared/protocol";
 import { DEFAULT_SETTINGS } from "../../src/shared/settings";
 
-const FAKE_BITMAP = { width: 8, height: 8 } as unknown as ImageBitmap;
+const FAKE_BITMAP = { width: 8, height: 8, close: () => {} } as unknown as ImageBitmap;
+const BIG_BITMAP = { width: 960, height: 640, close: () => {} } as unknown as ImageBitmap;
 const det = (label: Detection["label"], score: number): Detection => ({
 	label,
 	score,
@@ -21,6 +22,7 @@ class FakeWorker implements WorkerHandle {
 			failInit?: boolean;
 			silent?: boolean;
 			detections?: Detection[];
+			detailDetections?: Detection[];
 			inferError?: string;
 		} = {},
 	) {}
@@ -46,7 +48,9 @@ class FakeWorker implements WorkerHandle {
 						data: {
 							type: "result",
 							id: msg.id,
-							detections: this.opts.detections ?? [],
+							detections: msg.detail
+								? (this.opts.detailDetections ?? this.opts.detections ?? [])
+								: (this.opts.detections ?? []),
 							ms: 1,
 						},
 					} as MessageEvent);
@@ -57,7 +61,10 @@ class FakeWorker implements WorkerHandle {
 	terminate(): void {}
 }
 
-function makeHost(workerOpts: ConstructorParameters<typeof FakeWorker>[0] = {}) {
+function makeHost(
+	workerOpts: ConstructorParameters<typeof FakeWorker>[0] = {},
+	bitmap: ImageBitmap = FAKE_BITMAP,
+) {
 	const workers: FakeWorker[] = [];
 	const host = createEngineHost({
 		modelUrl: "chrome-extension://x/models/320n.onnx",
@@ -68,7 +75,7 @@ function makeHost(workerOpts: ConstructorParameters<typeof FakeWorker>[0] = {}) 
 			return w;
 		},
 		getSettings: async () => DEFAULT_SETTINGS,
-		decodeRequest: async () => FAKE_BITMAP,
+		decodeRequest: async () => bitmap,
 	});
 	return { host, workers };
 }
@@ -109,6 +116,36 @@ describe("engine host", () => {
 		});
 		expect(frame).toMatchObject({ cached: false });
 		host.dispose();
+	});
+
+	it("runs the detail pass only when pass one is clear on a large image", async () => {
+		// Pass 1 sees nothing; tiles find a female face → blur via 2nd infer.
+		const { host, workers } = makeHost(
+			{ detections: [], detailDetections: [det("FACE_FEMALE", 0.9)] },
+			BIG_BITMAP,
+		);
+		const res = await host.run({ ...imageReq, width: 960, height: 640 });
+		expect(res).toMatchObject({ decision: "blur" });
+		const infers = workers[0]!.posted.filter(
+			(m): m is Extract<WorkerInMessage, { type: "infer" }> => m.type === "infer",
+		);
+		expect(infers.map((m) => m.detail === true)).toEqual([false, true]);
+		host.dispose();
+	});
+
+	it("skips the detail pass on a blur hit or a small image", async () => {
+		// Pass 1 already blurs → single infer even on a big source.
+		const { host, workers } = makeHost({ detections: [det("FACE_FEMALE", 0.9)] }, BIG_BITMAP);
+		await host.run({ ...imageReq, width: 960, height: 640 });
+		expect(workers[0]!.posted.filter((m) => m.type === "infer")).toHaveLength(1);
+		host.dispose();
+
+		// Clear verdict but source fits the input → no tiles, single infer.
+		const h2 = makeHost({ detections: [] });
+		const res2 = await h2.host.run(imageReq);
+		expect(res2).toMatchObject({ decision: "clear" });
+		expect(h2.workers[0]!.posted.filter((m) => m.type === "infer")).toHaveLength(1);
+		h2.host.dispose();
 	});
 
 	it("returns {error} when boot exceeds the bounded wait", async () => {

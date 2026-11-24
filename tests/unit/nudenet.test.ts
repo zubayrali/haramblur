@@ -3,11 +3,14 @@ import {
 	INPUT_SIZE,
 	LETTERBOX_FILL,
 	letterboxSize,
+	MAX_TILES_PER_AXIS,
+	mergeDetections,
 	NMS_IOU,
 	nmsPerClass,
 	parseDetections,
 	rgbaToTensor,
 	SCORE_FLOOR,
+	tileRects,
 } from "../../src/engine/nudenet";
 import { NUDENET_LABELS } from "../../src/shared/labels";
 
@@ -102,6 +105,66 @@ describe("parseDetections", () => {
 		expect(y).toBeGreaterThanOrEqual(0);
 		expect(x + w).toBeLessThanOrEqual(1);
 		expect(y + h).toBeLessThanOrEqual(1);
+	});
+});
+
+describe("tileRects", () => {
+	it("returns nothing only when the source fits the input well under density", () => {
+		// ≤ ~213px sources have no zoom to gain: ceil(213 × 1.5 / 320) = 1.
+		expect(tileRects(200, 160)).toEqual([]);
+		// Exactly-input sources still tile: a small face gains ~1.33× zoom.
+		expect(tileRects(INPUT_SIZE, INPUT_SIZE)).toHaveLength(4);
+	});
+
+	it("covers each axis fully with overlapping tiles, capped per axis", () => {
+		// 960×640 → 3×3 tiles; union covers [0,960]×[0,640] with overlap.
+		const rects = tileRects(960, 640);
+		expect(rects).toHaveLength(9);
+		const xs = [...new Set(rects.map((r) => r.x))].sort((a, b) => a - b);
+		const ys = [...new Set(rects.map((r) => r.y))].sort((a, b) => a - b);
+		expect(xs[0]).toBe(0);
+		expect(ys[0]).toBe(0);
+		for (const [i, x] of xs.entries().filter(([, x]) => x > 0)) {
+			// Each next column starts before the previous ends → overlap.
+			const prevEnd =
+				rects.find((r) => r.x === xs[i - 1])!.x + rects.find((r) => r.x === xs[i - 1])!.w;
+			expect(x).toBeLessThan(prevEnd);
+		}
+		expect(Math.max(...rects.map((r) => r.x + r.w))).toBe(960);
+		expect(Math.max(...rects.map((r) => r.y + r.h))).toBe(640);
+	});
+
+	it("never exceeds MAX_TILES_PER_AXIS² tiles even on huge sources", () => {
+		const rects = tileRects(960, 4096);
+		expect(rects.length).toBeLessThanOrEqual(MAX_TILES_PER_AXIS ** 2);
+		// Tall source: 320×960 → 2×3 tiles at 1.5× density.
+		expect(tileRects(320, 960)).toHaveLength(6);
+	});
+});
+
+describe("mergeDetections", () => {
+	const det = (label: string, score: number, x: number, w: number) => ({
+		label: label as (typeof NUDENET_LABELS)[number],
+		score,
+		box: [x, 0, w, 0.2] as [number, number, number, number],
+	});
+
+	it("dedupes the same face seen across a tile seam, keeping the higher score", () => {
+		const merged = mergeDetections(
+			[det("FACE_FEMALE", 0.9, 0.4, 0.1)],
+			[det("FACE_FEMALE", 0.7, 0.42, 0.1)],
+		);
+		expect(merged).toHaveLength(1);
+		expect(merged[0]!.score).toBeCloseTo(0.9);
+	});
+
+	it("keeps disjoint same-class boxes and different classes; sorts by score", () => {
+		const merged = mergeDetections(
+			[det("FACE_FEMALE", 0.3, 0.0, 0.1)],
+			[det("FACE_FEMALE", 0.8, 0.6, 0.1), det("FACE_MALE", 0.5, 0.0, 0.1)],
+		);
+		expect(merged.map((d) => d.score)).toEqual([0.8, 0.5, 0.3]);
+		expect(merged.map((d) => d.label)).toContain("FACE_MALE");
 	});
 });
 
