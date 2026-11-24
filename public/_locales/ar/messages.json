@@ -5,6 +5,12 @@
 	"extDescription": {
 		"message": "Protect your privacy and uphold Islamic values by auto detecting & blurring images and videos of unwanted or impermissible content."
 	},
+	"appLocale": {
+		"message": "ar"
+	},
+	"textDirection": {
+		"message": "rtl"
+	},
 	"settings": {
 		"message": "الإعدادات"
 	},
@@ -17,7 +23,10 @@
 	"blurAmount": {
 		"message": "كمية التشويش: $amount$%",
 		"placeholders": {
-			"amount": { "content": "$1", "example": "20" }
+			"amount": {
+				"content": "$1",
+				"example": "20"
+			}
 		}
 	},
 	"grayscale": {
@@ -26,7 +35,10 @@
 	"strictness": {
 		"message": "الدقة: $percent$%",
 		"placeholders": {
-			"percent": { "content": "$1", "example": "50" }
+			"percent": {
+				"content": "$1",
+				"example": "50"
+			}
 		}
 	},
 	"mediaToBlur": {
@@ -68,14 +80,23 @@
 	"feedbackPrompt": {
 		"message": "نحب أن نسمع رأيك عبر $form$ أو $email$ ❤️",
 		"placeholders": {
-			"form": { "content": "$1", "example": "الاستمارة" },
-			"email": { "content": "$2", "example": "البريد الإلكتروني" }
+			"form": {
+				"content": "$1",
+				"example": "الاستمارة"
+			},
+			"email": {
+				"content": "$2",
+				"example": "البريد الإلكتروني"
+			}
 		}
 	},
 	"detectionForSite": {
 		"message": "الفحص $status$ لهذا الموقع",
 		"placeholders": {
-			"status": { "content": "$1", "example": "مفعل" }
+			"status": {
+				"content": "$1",
+				"example": "مفعل"
+			}
 		}
 	},
 	"detectionOn": {
@@ -83,5 +104,113 @@
 	},
 	"detectionOff": {
 		"message": "معطل"
+	},
+	"masterToggle": {
+		"message": "تفعيل الحماية"
+	},
+	"siteDetection": {
+		"message": "الفحص على $host$",
+		"placeholders": {
+			"host": {
+				"content": "$1",
+				"example": "example.com"
+			}
+		}
+	},
+	"engineStatus": {
+		"message": "المحرك"
+	},
+	"engineBooting": {
+		"message": "جارٍ البدء"
+	},
+	"engineReady": {
+		"message": "جاهز"
+	},
+	"engineDegraded": {
+		"message": "أداء منخفض"
+	},
+	"engineFailed": {
+		"message": "فشل"
+	},
+	"engineUnavailable": {
+		"message": "غير متاح"
+	},
+	"mediaOnThisPage": {
+		"message": "الوسائط في هذه الصفحة"
+	},
+	"noMedia": {
+		"message": "لا توجد وسائط في هذا التبويب"
+	},
+	"openSettings": {
+		"message": "فتح الإعدادات"
+	},
+	"revealThisMedia": {
+		"message": "إظهار هذه الوسائط"
+	},
+	"recheckThisMedia": {
+		"message": "إعادة فحص هذه الوسائط"
+	},
+	"allowlistTitle": {
+		"message": "قائمة المواقع المسموحة"
+	},
+	"allowlistDescription": {
+		"message": "يتم تعطيل الفحص على هذه المواقع."
+	},
+	"allowlistPlaceholder": {
+		"message": "example.com"
+	},
+	"addSite": {
+		"message": "إضافة"
+	},
+	"removeSite": {
+		"message": "إزالة"
+	},
+	"invalidHostname": {
+		"message": "أدخل اسم مضيف صالحًا، مثل example.com."
+	},
+	"blurSection": {
+		"message": "التشويش"
+	},
+	"blurAmountLabel": {
+		"message": "كمية التشويش"
+	},
+	"strictnessLabel": {
+		"message": "الدقة"
+	},
+	"blurPreviewCaption": {
+		"message": "معاينة مباشرة لتأثير التشويش"
+	},
+	"revealSection": {
+		"message": "الإظهار"
+	},
+	"advancedSection": {
+		"message": "متقدم"
+	},
+	"failClosed": {
+		"message": "إبقاء الوسائط مشوشة عند الأخطاء"
+	},
+	"failClosedHint": {
+		"message": "عند فشل الفحص أو انتهاء مهلة المحرك، تبقى الوسائط مشوشة."
+	},
+	"aboutSection": {
+		"message": "حول"
+	},
+	"licensesHeading": {
+		"message": "التراخيص"
+	},
+	"versionLabel": {
+		"message": "الإصدار"
+	},
+	"feedbackLead": {
+		"message": "يسعدنا سماع ملاحظاتك عبر"
+	},
+	"feedbackForm": {
+		"message": "الاستمارة"
+	},
+	"feedbackOr": {
+		"message": "أو"
+	},
+	"feedbackEmail": {
+		"message": "البريد الإلكتروني"
 	}
 }

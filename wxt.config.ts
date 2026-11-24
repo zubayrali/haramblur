@@ -13,8 +13,8 @@ export default defineConfig({
 		// there instead (docs/PLAN.md "Engine host").
 		permissions:
 			browser === "firefox"
-				? ["storage", "contextMenus"]
-				: ["storage", "offscreen", "contextMenus"],
+				? ["storage", "contextMenus", "scripting"]
+				: ["storage", "offscreen", "contextMenus", "scripting"],
 		host_permissions: ["*://*/*"],
 		icons: {
 			"48": "/icons/hb-icon-48.png",

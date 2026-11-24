@@ -5,6 +5,12 @@
 	"extDescription": {
 		"message": "Protect your privacy and uphold Islamic values by auto detecting & blurring images and videos of unwanted or impermissible content."
 	},
+	"appLocale": {
+		"message": "tr"
+	},
+	"textDirection": {
+		"message": "ltr"
+	},
 	"settings": {
 		"message": "Ayarlar"
 	},
@@ -17,7 +23,10 @@
 	"blurAmount": {
 		"message": "Bulanıklaştırma seviyesi: $amount$%",
 		"placeholders": {
-			"amount": { "content": "$1", "example": "20" }
+			"amount": {
+				"content": "$1",
+				"example": "20"
+			}
 		}
 	},
 	"grayscale": {
@@ -26,7 +35,10 @@
 	"strictness": {
 		"message": "Katılık: $percent$%",
 		"placeholders": {
-			"percent": { "content": "$1", "example": "50" }
+			"percent": {
+				"content": "$1",
+				"example": "50"
+			}
 		}
 	},
 	"mediaToBlur": {
@@ -68,14 +80,23 @@
 	"feedbackPrompt": {
 		"message": "Geri dönüşlerinizi $form$ veya $email$ yoluyla bize bildirin ❤️",
 		"placeholders": {
-			"form": { "content": "$1", "example": "Form" },
-			"email": { "content": "$2", "example": "E-mail" }
+			"form": {
+				"content": "$1",
+				"example": "Form"
+			},
+			"email": {
+				"content": "$2",
+				"example": "E-mail"
+			}
 		}
 	},
 	"detectionForSite": {
 		"message": "Bu web sitesi için algılama $status$",
 		"placeholders": {
-			"status": { "content": "$1", "example": "Açık" }
+			"status": {
+				"content": "$1",
+				"example": "Açık"
+			}
 		}
 	},
 	"detectionOn": {
@@ -83,5 +104,113 @@
 	},
 	"detectionOff": {
 		"message": "Kapalı"
+	},
+	"masterToggle": {
+		"message": "Korumayı etkinleştir"
+	},
+	"siteDetection": {
+		"message": "$host$ sitesinde algılama",
+		"placeholders": {
+			"host": {
+				"content": "$1",
+				"example": "example.com"
+			}
+		}
+	},
+	"engineStatus": {
+		"message": "Motor"
+	},
+	"engineBooting": {
+		"message": "Başlatılıyor"
+	},
+	"engineReady": {
+		"message": "Hazır"
+	},
+	"engineDegraded": {
+		"message": "Kısıtlı"
+	},
+	"engineFailed": {
+		"message": "Başarısız"
+	},
+	"engineUnavailable": {
+		"message": "Kullanılamıyor"
+	},
+	"mediaOnThisPage": {
+		"message": "Bu sayfadaki medya"
+	},
+	"noMedia": {
+		"message": "Bu sekmede medya yok"
+	},
+	"openSettings": {
+		"message": "Ayarları aç"
+	},
+	"revealThisMedia": {
+		"message": "Bu medyayı göster"
+	},
+	"recheckThisMedia": {
+		"message": "Bu medyayı yeniden denetle"
+	},
+	"allowlistTitle": {
+		"message": "İzin listesi"
+	},
+	"allowlistDescription": {
+		"message": "Bu sitelerde algılama devre dışı bırakılır."
+	},
+	"allowlistPlaceholder": {
+		"message": "example.com"
+	},
+	"addSite": {
+		"message": "Ekle"
+	},
+	"removeSite": {
+		"message": "Kaldır"
+	},
+	"invalidHostname": {
+		"message": "Geçerli bir alan adı girin, örn. example.com."
+	},
+	"blurSection": {
+		"message": "Bulanıklaştırma"
+	},
+	"blurAmountLabel": {
+		"message": "Bulanıklaştırma miktarı"
+	},
+	"strictnessLabel": {
+		"message": "Katılık"
+	},
+	"blurPreviewCaption": {
+		"message": "Bulanıklaştırma etkisinin canlı önizlemesi"
+	},
+	"revealSection": {
+		"message": "Gösterme"
+	},
+	"advancedSection": {
+		"message": "Gelişmiş"
+	},
+	"failClosed": {
+		"message": "Hatalarda medyayı bulanık tut"
+	},
+	"failClosedHint": {
+		"message": "Algılama zaman aşımına uğrarsa veya başarısız olursa medya bulanık kalır."
+	},
+	"aboutSection": {
+		"message": "Hakkında"
+	},
+	"licensesHeading": {
+		"message": "Lisanslar"
+	},
+	"versionLabel": {
+		"message": "Sürüm"
+	},
+	"feedbackLead": {
+		"message": "Geri bildiriminizi şuradan almak isteriz:"
+	},
+	"feedbackForm": {
+		"message": "Form"
+	},
+	"feedbackOr": {
+		"message": "veya"
+	},
+	"feedbackEmail": {
+		"message": "E-posta"
 	}
 }

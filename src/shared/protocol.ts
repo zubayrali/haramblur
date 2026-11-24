@@ -31,16 +31,40 @@ export interface Pong {
 	ts: number;
 }
 
+/** Per-tab media bookkeeping reported to the popup, counted from `data-hb-state`. */
+export interface TabStats {
+	total: number;
+	images: number;
+	videos: number;
+	/** Counts keyed by the element's `data-hb-state` value. */
+	byState: Record<string, number>;
+}
+
+export type ContextMediaKind = "image" | "video";
+
+/** Media targeted by a context-menu action, identified by its source URL. */
+export interface MediaTarget {
+	srcUrl: string;
+	kind: ContextMediaKind;
+}
+
 /**
  * Typed protocol for every cross-context call in the extension
  * (docs/PLAN.md "Message protocol"). `ping` is a scaffold health check used by
  * the E2E smoke test.
+ *
+ * `revealMedia`/`recheckMedia` are sent to a content script via
+ * `sendMessage(name, data, { tabId })`; the content pipeline (WP2) registers
+ * the handlers.
  */
 export interface HaramBlurProtocol {
 	ping(): Pong;
 	classifyImage(data: { url: string; width: number; height: number; frameUrl?: string }): Verdict;
 	classifyFrame(data: { dataUrl: string; videoId: string; ts: number }): Verdict;
 	engineStatus(): EngineStatus;
+	getTabStats(data: { tabId: number }): TabStats;
+	revealMedia(data: MediaTarget): void;
+	recheckMedia(data: MediaTarget): void;
 }
 
 export const { sendMessage, onMessage } = defineExtensionMessaging<HaramBlurProtocol>();
