@@ -160,7 +160,7 @@ test("reveal on click and hover respect settings", async () => {
 		// Enable reveal before the page loads.
 		const ext = await context.newPage();
 		await ext.goto(`chrome-extension://${extensionId}/popup.html`);
-		await writeSettings(ext, { unblurImages: true, unblurVideos: true });
+		await writeSettings(ext, { revealModeImages: "hover", revealModeVideos: "hover" });
 
 		const page = await context.newPage();
 		await page.goto(url);
@@ -193,6 +193,76 @@ test("reveal on click and hover respect settings", async () => {
 			undefined,
 			{ timeout: 15_000, polling: 250 },
 		);
+	} finally {
+		await closeExtension(context, userDataDir);
+		await close();
+	}
+});
+
+test("hold-to-peek reveals only while pressing", async () => {
+	const { context, extensionId, userDataDir } = await launchExtension();
+	const { url, close } = await serveFixtures({ "/": PAGE, "/frame.html": FRAME });
+	try {
+		const ext = await context.newPage();
+		await ext.goto(`chrome-extension://${extensionId}/popup.html`);
+		await writeSettings(ext, { revealModeImages: "hold" });
+
+		const page = await context.newPage();
+		await page.goto(url);
+		await expect(page.locator("#p-woman")).toHaveAttribute("data-hb-state", "blur", {
+			timeout: 30_000,
+		});
+
+		// Press and hold past the 400ms peek delay — the element reports
+		// data-hb-peek, which the content CSS uses to drop the blur.
+		const box = await page.locator("#p-woman").boundingBox();
+		expect(box).not.toBeNull();
+		await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+		await page.mouse.down();
+		await expect(page.locator("#p-woman")).toHaveAttribute("data-hb-peek", "1", {
+			timeout: 5_000,
+		});
+		// Still blurred underneath: no permanent reveal attribute.
+		expect(await page.locator("#p-woman").getAttribute("data-hb-reveal")).toBeNull();
+
+		// Release — the peek disappears and nothing stays open.
+		await page.mouse.up();
+		await expect(page.locator("#p-woman")).not.toHaveAttribute("data-hb-peek", "1", {
+			timeout: 5_000,
+		});
+		await page.waitForTimeout(300);
+		expect(await page.locator("#p-woman").getAttribute("data-hb-reveal")).toBeNull();
+	} finally {
+		await closeExtension(context, userDataDir);
+		await close();
+	}
+});
+
+test("reveal off blocks click and hover", async () => {
+	const { context, extensionId, userDataDir } = await launchExtension();
+	const { url, close } = await serveFixtures({ "/": PAGE, "/frame.html": FRAME });
+	try {
+		// revealModeImages defaults to "off" — write nothing, just confirm.
+		const ext = await context.newPage();
+		await ext.goto(`chrome-extension://${extensionId}/popup.html`);
+		await writeSettings(ext, { strictness: 1 });
+
+		const page = await context.newPage();
+		await page.goto(url);
+		await expect(page.locator("#p-woman")).toHaveAttribute("data-hb-state", "blur", {
+			timeout: 30_000,
+		});
+
+		// Click: no permanent reveal in off mode.
+		await page.locator("#p-woman").click();
+		await page.waitForTimeout(500);
+		expect(await page.locator("#p-woman").getAttribute("data-hb-reveal")).toBeNull();
+
+		// Hover: no reveal either — wait well past the 1s hover delay.
+		await page.locator("#p-woman").hover();
+		await page.waitForTimeout(2_000);
+		expect(await page.locator("#p-woman").getAttribute("data-hb-reveal")).toBeNull();
+		expect(await page.locator("#p-woman").getAttribute("data-hb-peek")).toBeNull();
 	} finally {
 		await closeExtension(context, userDataDir);
 		await close();
@@ -296,8 +366,8 @@ test("X.com paired media: invisible img skipped, bg div region-blurred", async (
 	try {
 		const ext = await context.newPage();
 		await ext.goto(`chrome-extension://${extensionId}/popup.html`);
-		// unblurImages enables hover reveal for the region portal.
-		await writeSettings(ext, { unblurImages: true, strictness: 1 });
+		// revealModeImages "hover" enables hover reveal for the region portal.
+		await writeSettings(ext, { revealModeImages: "hover", strictness: 1 });
 
 		const page = await context.newPage();
 		await page.goto(`${url}/x`);

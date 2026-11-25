@@ -141,7 +141,7 @@ describe("VideoManager", () => {
 	});
 
 	it("reveals a blurred video on click and stays revealed", async () => {
-		const { manager, h } = await makeManager({ unblurVideos: true });
+		const { manager, h } = await makeManager({ revealModeVideos: "hover" });
 		h.classifyFrame.mockResolvedValue(
 			verdict("blur", 0.95, 1, "FEMALE_BREAST_EXPOSED"), // high confidence → instant blur
 		);

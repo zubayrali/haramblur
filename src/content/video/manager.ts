@@ -191,7 +191,7 @@ export class VideoManager {
 			for (const video of [...this.samplers.keys()]) this.unobserve(video);
 			return;
 		}
-		// Settings like blurAmount/gray/unblurVideos/regionBlur apply live —
+		// Settings like blurAmount/gray/revealModeVideos/regionBlur apply live —
 		// and the blur must be rebuilt from the sampler's last verdict, not
 		// wiped: reasons drive both the policy re-decide and region boxes.
 		for (const sampler of this.samplers.values()) {

@@ -5,6 +5,7 @@ import {
 	DEFAULT_SETTINGS,
 	type LegacySettings,
 	migrateLegacySettings,
+	migrateV6Settings,
 	SETTINGS_KEY,
 	SETTINGS_VERSION,
 	type Settings,
@@ -34,6 +35,11 @@ export const settings = storage.defineItem<Settings>(SETTINGS_KEY, {
 		5: (oldValue: Settings) => ({ ...DEFAULT_SETTINGS, ...oldValue }),
 		// v5 → v6: fill in censorStyle.
 		6: (oldValue: Settings) => ({ ...DEFAULT_SETTINGS, ...oldValue }),
+		// v6 → v7: the unblur booleans become per-kind reveal modes
+		// (`true` mapped to the same behaviour, "hover"); fill in
+		// settingsLock/youtubeCaptionCover.
+		7: (oldValue: Settings & { unblurImages?: boolean; unblurVideos?: boolean }) =>
+			migrateV6Settings(oldValue),
 	},
 });
 

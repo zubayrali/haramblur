@@ -1,4 +1,4 @@
-import type { Settings } from "../shared/settings";
+import type { RevealMode, Settings } from "../shared/settings";
 import type { MediaKind } from "./discovery";
 
 /**
@@ -25,6 +25,9 @@ const STYLE_ID = "hb-blur-styles";
 
 /** Hover delay before a reveal, matching the 0.2.x extension's transition. */
 const REVEAL_DELAY_MS = 1000;
+
+/** Continuous hold time before a hold-to-peek reveal kicks in. */
+export const HOLD_PEEK_DELAY_MS = 400;
 
 export type MediaState = "pending" | "blur" | "clear" | "error";
 
@@ -80,9 +83,12 @@ export function ensureBlurStyles(doc: Document = document): HTMLStyleElement {
 	return style;
 }
 
-/** Whether hover/click reveal is enabled for a media kind. */
-export function revealAllowed(kind: MediaKind, settings: Settings): boolean {
-	return kind === "video" ? settings.unblurVideos : settings.unblurImages;
+/**
+ * The interactive reveal mode for a media kind. Callers compare against
+ * "hover"/"hold"/"off" — see the `RevealMode` docs in shared/settings.
+ */
+export function revealModeFor(kind: MediaKind, settings: Settings): RevealMode {
+	return kind === "video" ? settings.revealModeVideos : settings.revealModeImages;
 }
 
 /**
@@ -124,11 +130,11 @@ export function applyBlurStyles(settings: Settings): void {
 	// Hover reveal only for kinds the user allows, and only ever applied to
 	// elements whose state isn't "blur-disabled" — see index.ts click gate.
 	const hoverSelectors: string[] = [];
-	if (settings.unblurImages) {
+	if (settings.revealModeImages === "hover") {
 		hoverSelectors.push('[data-hb-blur][data-hb-kind="image"]:hover');
 		hoverSelectors.push('[data-hb-blur][data-hb-kind="background"]:hover');
 	}
-	if (settings.unblurVideos) {
+	if (settings.revealModeVideos === "hover") {
 		hoverSelectors.push('[data-hb-blur][data-hb-kind="video"]:hover');
 	}
 	if (hoverSelectors.length > 0) {
@@ -140,6 +146,14 @@ ${hoverSelectors.join(",\n")} {
 	animation: none !important;
 }`;
 	}
+	// Hold-to-peek: index.ts sets data-hb-peek while the pointer stays down.
+	// Always emitted — the attribute only exists in "hold" mode anyway.
+	css += `
+[data-hb-blur][data-hb-peek] {
+	filter: blur(0px) grayscale(0%) !important;
+	transition: filter 0.2s ease !important;
+	animation: none !important;
+}`;
 	style.textContent = css;
 	lastCss = css;
 	try {
@@ -170,6 +184,12 @@ export function setReasons(el: HTMLElement, reasonsJson: string): void {
 	el.dataset.hbReasons = reasonsJson;
 }
 
+/** Mark the element peeked (hold-to-peek); the blur lifts while present. */
+export function setPeeking(el: HTMLElement, on: boolean): void {
+	if (on) el.dataset.hbPeek = "1";
+	else delete el.dataset.hbPeek;
+}
+
 /** Mark the element revealed by click; clears the blur permanently. */
 export function reveal(el: HTMLElement): void {
 	setBlurred(el, false);
@@ -187,6 +207,7 @@ export function clearAll(el: HTMLElement): void {
 		"hbReasons",
 		"hbReveal",
 		"hbRegion",
+		"hbPeek",
 	]) {
 		delete el.dataset[key];
 	}

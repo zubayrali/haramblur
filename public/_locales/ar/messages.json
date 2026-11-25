@@ -131,6 +131,18 @@
 	"unblurVideos": {
 		"message": "مقاطع الفيديو"
 	},
+	"revealOff": {
+		"message": "إيقاف"
+	},
+	"revealHover": {
+		"message": "المرور بالمؤشر"
+	},
+	"revealHold": {
+		"message": "ضغط مستمر للإظهار"
+	},
+	"revealModeHint": {
+		"message": "المرور بالمؤشر يُظهر بعد مهلة والنقر يثبّت الإظهار. الضغط المستمر يُظهر فقط أثناء الضغط — لا شيء يبقى مكشوفًا."
+	},
 	"requiresRefresh": {
 		"message": " (يتطلب إعادة تحميل الصفحة):"
 	},
@@ -261,6 +273,24 @@
 	"failClosedHint": {
 		"message": "عند فشل الفحص أو انتهاء مهلة المحرك، تبقى الوسائط مشوشة."
 	},
+	"settingsLock": {
+		"message": "قفل الإعدادات"
+	},
+	"settingsLockHint": {
+		"message": "تغيير الإعدادات يتطلب ضغطًا مستمرًا لمدة 10 ثوانٍ — حاجز ضد النقرات الاندفاعية."
+	},
+	"lockBannerTitle": {
+		"message": "الإعدادات مقفلة"
+	},
+	"holdToUnlock": {
+		"message": "اضغط باستمرار للفتح"
+	},
+	"holdToUnlockHint": {
+		"message": "استمر في الضغط — الإفلات يعيد المؤقت"
+	},
+	"popupLockedNote": {
+		"message": "مقفل — يُفتح من صفحة الإعدادات"
+	},
 	"aboutSection": {
 		"message": "حول"
 	},
@@ -284,6 +314,15 @@
 	},
 	"feedbackEmail": {
 		"message": "البريد الإلكتروني"
+	},
+	"youtubeSection": {
+		"message": "يوتيوب"
+	},
+	"ytCaptionCover": {
+		"message": "إخفاء الترجمة في المقاطع المحجوبة"
+	},
+	"ytCaptionCoverHint": {
+		"message": "الترجمة تنقل المحتوى متجاوزةً الحجب البصري — تُخفى ما دام المقطع مشوشًا."
 	},
 	"profiles": {
 		"message": "إعدادات مسبقة"

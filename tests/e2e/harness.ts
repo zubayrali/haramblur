@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type BrowserContext, chromium, type Page } from "@playwright/test";
+import { DEFAULT_SETTINGS, SETTINGS_VERSION } from "../../src/shared/settings";
 
 /**
  * Shared E2E plumbing (WP5): a persistent Chromium context with the unpacked
@@ -49,25 +50,8 @@ export interface WireResponse {
 	err?: unknown;
 }
 
-/** Default settings — mirrors DEFAULT_SETTINGS in src/shared/settings.ts (v4). */
-export const BASE_SETTINGS = {
-	status: true,
-	blurryStartMode: true,
-	blurAmount: 20,
-	gray: true,
-	strictness: 0.5,
-	blurImages: true,
-	blurVideos: true,
-	blurMale: false,
-	blurFemale: true,
-	strictModesty: false,
-	skipChildren: true,
-	unblurImages: false,
-	unblurVideos: false,
-	allowlist: [] as string[],
-	failClosed: true,
-	regionBlur: true,
-};
+/** Default settings — the real v7 defaults from src/shared/settings.ts. */
+export const BASE_SETTINGS = DEFAULT_SETTINGS;
 
 /** Launch Chromium with the unpacked extension loaded. */
 export async function launchExtension(lang = "en"): Promise<{
@@ -156,17 +140,16 @@ export function sendProtoMessage<T>(page: Page, type: string, data?: unknown): P
 	) as Promise<T>;
 }
 
-/** Merge a patch over the default settings into chrome.storage.sync (v2). */
+/** Merge a patch over the default settings into chrome.storage.sync. */
 export function writeSettings(page: Page, patch: Record<string, unknown>): Promise<void> {
 	return page.evaluate(
-		([base, p]) =>
+		([base, p, v]) =>
 			new Promise<void>((resolve) => {
-				chrome.storage.sync.set(
-					{ "hb-settings": { ...base, ...p }, "hb-settings$": { v: 2 } },
-					() => resolve(),
+				chrome.storage.sync.set({ "hb-settings": { ...base, ...p }, "hb-settings$": { v } }, () =>
+					resolve(),
 				);
 			}),
-		[BASE_SETTINGS, patch],
+		[BASE_SETTINGS, patch, SETTINGS_VERSION],
 	);
 }
 

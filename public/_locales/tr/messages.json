@@ -131,6 +131,18 @@
 	"unblurVideos": {
 		"message": "Videolar"
 	},
+	"revealOff": {
+		"message": "Kapalı"
+	},
+	"revealHover": {
+		"message": "Üzerine gelme"
+	},
+	"revealHold": {
+		"message": "Basılı tutarak gözat"
+	},
+	"revealModeHint": {
+		"message": "Üzerine gelme bir gecikmeyle gösterir ve tıklama sabitler. Basılı tutma yalnızca basılıyken gösterir — hiçbir şey açık kalmaz."
+	},
 	"requiresRefresh": {
 		"message": " (sayfa yenileme gerektirir):"
 	},
@@ -261,6 +273,24 @@
 	"failClosedHint": {
 		"message": "Algılama zaman aşımına uğrarsa veya başarısız olursa medya bulanık kalır."
 	},
+	"settingsLock": {
+		"message": "Ayarlar kilidi"
+	},
+	"settingsLockHint": {
+		"message": "Ayarları değiştirmek 10 saniyelik kesintisiz basılı tutma gerektirir — ani tıklamalara karşı sürtünme."
+	},
+	"lockBannerTitle": {
+		"message": "Ayarlar kilitli"
+	},
+	"holdToUnlock": {
+		"message": "Kilidi açmak için basılı tut"
+	},
+	"holdToUnlockHint": {
+		"message": "Basılı tut — bırakmak sayacı sıfırlar"
+	},
+	"popupLockedNote": {
+		"message": "Kilitli — ayarlar sayfasından açılır"
+	},
 	"aboutSection": {
 		"message": "Hakkında"
 	},
@@ -284,6 +314,15 @@
 	},
 	"feedbackEmail": {
 		"message": "E-posta"
+	},
+	"youtubeSection": {
+		"message": "YouTube"
+	},
+	"ytCaptionCover": {
+		"message": "Sansürlü videolarda altyazıları gizle"
+	},
+	"ytCaptionCoverHint": {
+		"message": "Altyazılar içeriği görsel sansürün yanından taşır — video bulanıkken gizlenir."
 	},
 	"profiles": {
 		"message": "Hazır Ayarlar"
