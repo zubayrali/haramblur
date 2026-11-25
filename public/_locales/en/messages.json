@@ -431,5 +431,11 @@
 	},
 	"packFastfaceLargeInt8Desc": {
 		"message": "3.8 MB quantized gender classifier — larger backbone at 128px, higher accuracy than the bundled small model"
+	},
+	"packNudenet640m": {
+		"message": "NudeNet 640m (accuracy)"
+	},
+	"packNudenet640mDesc": {
+		"message": "99 MB high-accuracy detector — uses a 640px input; slower and much larger than the bundled 320n model"
 	}
 }

@@ -11,6 +11,65 @@ import { NUDENET_LABELS } from "../shared/labels";
 import type { Detection } from "../shared/protocol";
 
 export const INPUT_SIZE = 320;
+/** WASM keeps the original 320² budget; WebGPU may use more headroom (DP3). */
+export const WASM_INPUT_SIZE = 320;
+export const WEBGPU_INPUT_SIZE = 480;
+export const MIN_INPUT_SIZE = 256;
+export const MAX_INPUT_SIZE = 1024;
+/** YOLOv8 strides 8/16/32 require spatial dimensions aligned to 32. */
+export const INPUT_STRIDE = 32;
+
+/** Backend-specific default for a dynamic NudeNet graph. */
+export function defaultInputSizeForBackend(backend: "wasm" | "webgpu"): number {
+	return backend === "webgpu" ? WEBGPU_INPUT_SIZE : WASM_INPUT_SIZE;
+}
+
+/** Validate an input edge without silently accepting malformed graph/request metadata. */
+export function isValidInputSize(size: number): boolean {
+	return (
+		Number.isInteger(size) &&
+		size >= MIN_INPUT_SIZE &&
+		size <= MAX_INPUT_SIZE &&
+		size % INPUT_STRIDE === 0
+	);
+}
+
+/** Return `size` when valid, otherwise the caller's default. */
+export function inputSizeOrDefault(size: number | undefined, fallback = INPUT_SIZE): number {
+	return typeof size === "number" && isValidInputSize(size) ? size : fallback;
+}
+
+/**
+ * Read a fixed square spatial input from ONNX shape metadata. Dynamic NudeNet
+ * exports report symbolic `height`/`width`, for which this returns null.
+ */
+export function staticInputSizeFromShape(shape: readonly unknown[] | undefined): number | null {
+	if (shape == null || shape.length !== 4) return null;
+	const h = shape[2];
+	const w = shape[3];
+	if (typeof h !== "number" || typeof w !== "number" || h !== w) return null;
+	const size = Math.floor(h);
+	return isValidInputSize(size) ? size : null;
+}
+
+/**
+ * Resolution precedence: a fixed-shape graph dictates its only legal size;
+ * otherwise an explicit per-request measurement override wins, then curated
+ * model metadata (640m), then the backend-specific default.
+ */
+export function resolveNudenetInputSize(opts: {
+	backend: "wasm" | "webgpu";
+	staticSize?: number | null;
+	modelInputSize?: number;
+	requestSize?: number;
+}): number {
+	if (opts.staticSize != null) return opts.staticSize;
+	const fallback = inputSizeOrDefault(
+		opts.modelInputSize,
+		defaultInputSizeForBackend(opts.backend),
+	);
+	return inputSizeOrDefault(opts.requestSize, fallback);
+}
 export const LETTERBOX_FILL = 114;
 export const NMS_IOU = 0.45;
 /**

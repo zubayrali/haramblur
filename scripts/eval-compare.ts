@@ -55,6 +55,7 @@ interface ImageResult {
 	actual: "blur" | "clear" | "error";
 	ms: number;
 	detections: { label: string; score: number }[];
+	expectLabels: string[];
 }
 interface ResultsFile {
 	engine: string;
@@ -153,16 +154,124 @@ function metrics(rs: ImageResult[]): Metrics {
 
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
 
+interface ClassTally {
+	tp: number;
+	fp: number;
+	fn: number;
+}
+
+/** Presence-level per-class metrics over the manifest's human labels (dev tuning only). */
+function perClass(rows: ImageResult[], threshold = 0.3): Map<string, ClassTally> {
+	const out = new Map<string, ClassTally>();
+	const get = (label: string) => {
+		const cur = out.get(label) ?? { tp: 0, fp: 0, fn: 0 };
+		out.set(label, cur);
+		return cur;
+	};
+	for (const row of rows) {
+		const predicted = new Set(
+			row.detections.filter((d) => d.score >= threshold).map((d) => d.label),
+		);
+		for (const label of row.expectLabels) {
+			if (predicted.has(label)) get(label).tp++;
+			else get(label).fn++;
+		}
+		for (const label of predicted) {
+			if (!row.expectLabels.includes(label)) get(label).fp++;
+		}
+	}
+	return out;
+}
+
+function printPerClass(rows: ImageResult[]): void {
+	console.log("\n### per-class precision/recall (presence, detections >= 0.3)\n");
+	console.log("| class | precision | recall | tp | fp | fn |");
+	console.log("|---|---:|---:|---:|---:|---:|");
+	for (const [label, t] of [...perClass(rows).entries()].sort()) {
+		const precision = t.tp + t.fp === 0 ? null : t.tp / (t.tp + t.fp);
+		const recall = t.tp + t.fn === 0 ? null : t.tp / (t.tp + t.fn);
+		const fmt = (v: number | null) => (v == null ? "—" : pct(v));
+		console.log(`| ${label} | ${fmt(precision)} | ${fmt(recall)} | ${t.tp} | ${t.fp} | ${t.fn} |`);
+	}
+}
+
 function printTable(title: string, rows: [string, Metrics, Metrics?][]): void {
 	console.log(`\n### ${title}\n`);
 	console.log(
 		"| set | n | acc | prec | rec | F1 | false-blur | miss | p50ms | p95ms |" +
 			(rows.some((r) => r[2]) ? " vs-base acc/F1 |" : ""),
 	);
-	console.log("|---|---|---|---|---|---|---|---|---|---|" + (rows.some((r) => r[2]) ? "---|" : ""));
+	console.log(`|---|---|---|---|---|---|---|---|---|---|${rows.some((r) => r[2]) ? "---|" : ""}`);
 	for (const [name, m, base] of rows) {
 		const line = `| ${name} | ${m.n} | ${pct(m.acc)} | ${pct(m.precision)} | ${pct(m.recall)} | ${pct(m.f1)} | ${pct(m.falseBlur)} | ${pct(m.miss)} | ${m.p50} | ${m.p95} |`;
 		console.log(base ? `${line} ${pct(base.acc)}/${pct(base.f1)} |` : line);
+	}
+}
+
+/**
+ * Seed an OPFS NudeNet override before the measured browser starts. The first
+ * seeding browser is discarded; the measurement browser then boots with the
+ * override already present. The file is fetched through the extension package
+ * to avoid transferring 100 MB through Playwright's evaluate bridge.
+ */
+async function seedNudenetOverride(userDataDir: string, extensionFile: string): Promise<void> {
+	const context = await chromium.launchPersistentContext(userDataDir, {
+		headless: false,
+		args: [`--disable-extensions-except=${EXTENSION_DIR}`, `--load-extension=${EXTENSION_DIR}`],
+	});
+	try {
+		let worker = context.serviceWorkers().find((sw) => sw.url().startsWith("chrome-extension://"));
+		worker ??= await context.waitForEvent("serviceworker", { timeout: 15_000 });
+		const extensionId = new URL(worker.url()).host;
+		const page = await context.newPage();
+		await page.addInitScript("globalThis.__name = (fn) => fn");
+		await page.goto(`chrome-extension://${extensionId}/popup.html`);
+		await page.evaluate(async (file) => {
+			const res = await fetch(
+				(chrome.runtime as unknown as { getURL(path: string): string }).getURL(file),
+			);
+			if (!res.ok) throw new Error(`override fetch failed: HTTP ${res.status}`);
+			const bytes = new Uint8Array(await res.arrayBuffer());
+			const root = await (
+				navigator.storage as unknown as {
+					getDirectory(): Promise<{
+						getDirectoryHandle(
+							name: string,
+							opts: { create: boolean },
+						): Promise<{
+							getFileHandle(
+								name: string,
+								opts: { create: boolean },
+							): Promise<{
+								createWritable(): Promise<{
+									write(data: Uint8Array): Promise<void>;
+									close(): Promise<void>;
+								}>;
+							}>;
+						}>;
+					}>;
+				}
+			).getDirectory();
+			const dir = await root.getDirectoryHandle("hb-models", { create: true });
+			const write = async (name: string, data: Uint8Array) => {
+				const fh = await dir.getFileHandle(name, { create: true });
+				const w = await fh.createWritable();
+				await w.write(data);
+				await w.close();
+			};
+			await write("nudenet.onnx", bytes);
+			const meta = {
+				sha256: "",
+				size: bytes.length,
+				installedAt: Date.now(),
+				fileName: file.split("/").at(-1),
+				inputSize: 640,
+			};
+			await write("nudenet.json", new TextEncoder().encode(JSON.stringify(meta)));
+		}, extensionFile);
+		await page.close();
+	} finally {
+		await context.close();
 	}
 }
 
@@ -174,6 +283,12 @@ async function main(): Promise<void> {
 	if (coverageMode != null && !["face", "head", "body"].includes(coverageMode)) {
 		throw new Error(`invalid --coverage-mode "${coverageMode}"`);
 	}
+	const detectorInput =
+		arg("--detector-input") == null ? undefined : Number(arg("--detector-input"));
+	const nudenetOverride = arg("--nudenet-override");
+	if (detectorInput != null && (!Number.isInteger(detectorInput) || detectorInput % 32 !== 0)) {
+		throw new Error(`invalid --detector-input "${detectorInput}"`);
+	}
 	const splits = splitArg === "all" ? Object.keys(manifest.splits) : [splitArg];
 	const entries: { file: string; split: string; entry: ManifestEntry }[] = [];
 	for (const s of splits) {
@@ -184,6 +299,7 @@ async function main(): Promise<void> {
 
 	const { url: base, close } = await serveFixtures();
 	const userDataDir = await mkdtemp(join(tmpdir(), "hb-cmp-"));
+	if (nudenetOverride != null) await seedNudenetOverride(userDataDir, nudenetOverride);
 	const context = await chromium.launchPersistentContext(userDataDir, {
 		headless: false,
 		args: [`--disable-extensions-except=${EXTENSION_DIR}`, `--load-extension=${EXTENSION_DIR}`],
@@ -212,10 +328,15 @@ async function main(): Promise<void> {
 
 		for (const { file, split, entry } of entries) {
 			const res = await page.evaluate(
-				(url) =>
+				([url, inputSize]) =>
 					new Promise<WireResponse>((resolve, reject) =>
 						chrome.runtime.sendMessage(
-							{ id: 1, type: "classifyImage", data: { url }, timestamp: Date.now() },
+							{
+								id: 1,
+								type: "classifyImage",
+								data: { url, ...(inputSize == null ? {} : { detectorInputSize: inputSize }) },
+								timestamp: Date.now(),
+							},
 							(resp: WireResponse) => {
 								const lastError = chrome.runtime.lastError;
 								if (lastError) reject(new Error(lastError.message));
@@ -223,7 +344,7 @@ async function main(): Promise<void> {
 							},
 						),
 					),
-				`${base}/${file}`,
+				[`${base}/${file}`, detectorInput],
 			);
 			const v = res.res;
 			const actual: ImageResult["actual"] =
@@ -236,6 +357,7 @@ async function main(): Promise<void> {
 				actual,
 				ms: v?.ms ?? 0,
 				detections: (v?.reasons ?? []).map((d) => ({ label: d.label, score: d.score })),
+				expectLabels: entry.expect ?? [],
 			});
 			const mark = actual === entry.decision ? "ok " : "MISS";
 			console.log(`${mark} ${split}/${file} → ${actual} (expected ${entry.decision})`);
@@ -273,6 +395,7 @@ async function main(): Promise<void> {
 		}
 		printTable(`split: ${split}`, rows);
 	}
+	printPerClass(results);
 	if (baseline != null) {
 		const all = metrics(results);
 		const ball = metrics(baseline.results.filter((r) => splits.includes(r.split)));

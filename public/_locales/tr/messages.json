@@ -431,5 +431,11 @@
 	},
 	"packFastfaceLargeInt8Desc": {
 		"message": "3,8 MB kuantize cinsiyet sınıflandırıcı — 128px'te daha büyük omurga, paketli küçük modelden daha yüksek doğruluk"
+	},
+	"packNudenet640m": {
+		"message": "NudeNet 640m (doğruluk)"
+	},
+	"packNudenet640mDesc": {
+		"message": "99 MB yüksek doğruluklu dedektör — 640px girdi kullanır; paketli 320n modelden daha yavaş ve çok daha büyük"
 	}
 }

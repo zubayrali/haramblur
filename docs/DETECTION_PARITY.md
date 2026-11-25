@@ -164,6 +164,12 @@ Acceptance: eval table (dev split only, never the held-out test split) in the
 PR: precision/recall per class at each input size; chosen defaults justified
 by the table; G3 holds.
 
+DP3 implementation note (2026-11-25): bundled 320n uses 320² on WASM and
+480² on WebGPU; video capture follows the active detector edge. Dev-split
+measurements are recorded in the DP3 PR. The optional hash-verified 640m
+pack is retained as an opt-in accuracy/region-quality tradeoff, not a speed
+default.
+
 ### DP4 — Sensitivity & threshold architecture
 
 Upstream feels more sensitive because it is: strictness scales per-class

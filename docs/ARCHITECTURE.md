@@ -28,7 +28,7 @@ sources, and `<iframe>` contents; an IntersectionObserver promotes visible
 media to the front of the classification queue. Element state is carried in
 `data-hb-*` attributes (`kind`, `state`, `blur`, `reasons`, `reveal`) so
 thousand-image feeds stay cheap. The video sampler (`requestVideoFrameCallback`,
-rAF fallback) draws downscaled ≤480 px WebP frames and
+rAF fallback) draws downscaled WebP frames capped at the active detector input edge (≤480 px for the bundled GPU default, 320 px on WASM, 640 px with the optional 640m pack) and
 pauses for hidden, paused, or off-screen videos. Sampling is a continuous
 one-in-flight loop with a 10 fps ceiling and exponential backoff toward 1 fps
 for static clear scenes.

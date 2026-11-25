@@ -251,6 +251,8 @@ export default defineBackground({
 				width: data.width,
 				height: data.height,
 				frameUrl: data.frameUrl,
+				detectorInputSize: data.detectorInputSize,
+				personPassOverride: data.personPassOverride,
 				settings: await getSettings(),
 			}),
 		);

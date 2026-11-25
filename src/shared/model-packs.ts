@@ -18,6 +18,8 @@ export interface ModelPack {
 	/** Pinned SHA-256 — a mismatch aborts the install. */
 	sha256: string;
 	sizeBytes: number;
+	/** Intended detector input edge when the graph itself is dynamic. */
+	inputSize?: number;
 }
 
 export const MODEL_PACKS: readonly ModelPack[] = [
@@ -50,6 +52,19 @@ export const MODEL_PACKS: readonly ModelPack[] = [
 		url: "https://huggingface.co/iFurySt/fastface/resolve/main/models/fastface-large-128/model_int8_static.onnx",
 		sha256: "2834e70884800019972e588fbe95eb73ebe942120a364d8aaa60085ba4f5b9cf",
 		sizeBytes: 4_008_918,
+	},
+	{
+		// High-accuracy NudeNet detector: 640m weights, accuracy-over-speed
+		// optional pack. SHA-256/size are pinned; the graph is dynamic, so the
+		// intended 640² input must travel as pack metadata.
+		id: "nudenet-640m",
+		slot: "nudenet",
+		labelKey: "packNudenet640m",
+		descKey: "packNudenet640mDesc",
+		url: "https://huggingface.co/spaces/Nymbo/Nudity-Censor/resolve/7955acb6e51995555fe4e5f2fcde7437004053a0/640m.onnx",
+		sha256: "04fe3d77980780c1f8297dc6d7f942fd5b3abe6942a188f742a85241e4f634eb",
+		sizeBytes: 103_538_690,
+		inputSize: 640,
 	},
 ];
 
