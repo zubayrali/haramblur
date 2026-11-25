@@ -8,10 +8,12 @@ import {
 	blurWhilePending,
 	clearAll,
 	ensureBlurStyles,
+	HOLD_PEEK_DELAY_MS,
 	reveal,
-	revealAllowed,
+	revealModeFor,
 	setBlurred,
 	setKind,
+	setPeeking,
 	setReasons,
 	setState,
 } from "./blur";
@@ -29,12 +31,14 @@ import { TaskQueue } from "./queue";
 import {
 	applyBlurMode,
 	clearAllRegionBlurs,
+	peekRegionBlur,
 	removeRegionBlur,
 	setRegionSettings,
 	syncRegionBlur,
 } from "./region";
 import { reasonsFromJson, reasonsToJson } from "./site";
 import { createVideoManager, type VideoManager } from "./video";
+import { applyYouTubeShields } from "./youtube";
 
 /**
  * Content pipeline glue (docs/PLAN.md WP2). Deliberately small: discovery emits
@@ -52,6 +56,7 @@ export async function startContentPipeline(): Promise<void> {
 	ensureBlurStyles();
 	applyBlurStyles(settings);
 	setRegionSettings(settings);
+	applyYouTubeShields(settings);
 
 	const queue = new TaskQueue({ concurrency: QUEUE_CONCURRENCY });
 	const videos: VideoManager = createVideoManager();
@@ -270,21 +275,42 @@ export async function startContentPipeline(): Promise<void> {
 		}
 	}
 
-	// Reveal on click where settings allow; hover reveal is per-mode CSS
-	// (whole-element) or the portal's JS timer (region mode). composedPath is
+	// Reveal interactions, per the kind's revealMode. composedPath is
 	// required: ev.target is retargeted to the shadow host for listeners
 	// outside the shadow tree, so closest() would miss media inside shadow DOM.
+	const mediaTarget = (ev: Event): HTMLElement | null => {
+		const el = ev
+			.composedPath()
+			.find(
+				(n): n is Element => n instanceof Element && n.matches("[data-hb-blur],[data-hb-region]"),
+			);
+		return el instanceof HTMLElement ? el : null;
+	};
+	const kindOf = (el: HTMLElement) => el.dataset.hbKind as MediaKind | undefined;
+
+	// Permanent click reveal exists only in "hover" mode (the 0.2.x behavior
+	// the boolean toggles used to gate); hover reveal itself is per-mode CSS
+	// (whole-element) or the portal's JS timer (region mode).
+	let swallowClickFor: HTMLElement | null = null;
 	document.addEventListener(
 		"click",
 		(ev) => {
-			const el = ev
-				.composedPath()
-				.find(
-					(n): n is Element => n instanceof Element && n.matches("[data-hb-blur],[data-hb-region]"),
-				);
+			const el = mediaTarget(ev);
+			// A completed hold-to-peek swallows the click it leaves behind —
+			// otherwise releasing a peek on a video would toggle playback of
+			// the censored content.
+			if (swallowClickFor != null) {
+				const swallowing = el != null && el === swallowClickFor;
+				swallowClickFor = null;
+				if (swallowing) {
+					ev.preventDefault();
+					ev.stopPropagation();
+					return;
+				}
+			}
 			if (!(el instanceof HTMLElement)) return;
-			const kind = el.dataset.hbKind as MediaKind | undefined;
-			if (kind == null || !revealAllowed(kind, settings)) return;
+			const kind = kindOf(el);
+			if (kind == null || revealModeFor(kind, settings) !== "hover") return;
 			// A video's blur lives on its inline filter too — the manager must
 			// clear it, not just the data attribute.
 			if (el instanceof HTMLVideoElement) videos.reveal(el);
@@ -295,6 +321,48 @@ export async function startContentPipeline(): Promise<void> {
 		},
 		true,
 	);
+
+	// Hold-to-peek ("hold" mode): pressing a censored element for
+	// HOLD_PEEK_DELAY_MS lifts the censor while the pointer stays down;
+	// releasing anywhere re-blurs instantly. No permanent reveal.
+	let peekEl: HTMLElement | null = null;
+	let peekTimer: ReturnType<typeof setTimeout> | null = null;
+	const endPeek = () => {
+		if (peekTimer != null) {
+			clearTimeout(peekTimer);
+			peekTimer = null;
+		}
+		if (peekEl != null) {
+			if (peekEl.dataset.hbPeek != null) swallowClickFor = peekEl;
+			setPeeking(peekEl, false);
+			peekRegionBlur(peekEl, false);
+			peekEl = null;
+		}
+	};
+	document.addEventListener(
+		"pointerdown",
+		(ev) => {
+			endPeek();
+			// A flag left over from an interrupted peek (no click followed)
+			// must not swallow this press's click.
+			swallowClickFor = null;
+			const el = mediaTarget(ev);
+			if (!(el instanceof HTMLElement)) return;
+			const kind = kindOf(el);
+			if (kind == null || revealModeFor(kind, settings) !== "hold") return;
+			peekEl = el;
+			peekTimer = setTimeout(() => {
+				peekTimer = null;
+				if (peekEl === el) {
+					setPeeking(el, true);
+					peekRegionBlur(el, true);
+				}
+			}, HOLD_PEEK_DELAY_MS);
+		},
+		true,
+	);
+	document.addEventListener("pointerup", endPeek, true);
+	document.addEventListener("pointercancel", endPeek, true);
 
 	/**
 	 * Find the pipeline-tracked element showing `srcUrl` (context-menu actions
@@ -313,6 +381,10 @@ export async function startContentPipeline(): Promise<void> {
 	onMessage("revealMedia", ({ data }) => {
 		const el = findMediaBySrc(data.srcUrl);
 		if (el == null) return;
+		// "off" means no reveal paths at all — the context menu included.
+		// In "hold" mode this stays the deliberate, high-friction escape.
+		const kind = el.dataset.hbKind as MediaKind | undefined;
+		if (kind == null || revealModeFor(kind, settings) === "off") return;
 		if (el instanceof HTMLVideoElement) videos.reveal(el);
 		else {
 			reveal(el);
@@ -339,6 +411,7 @@ export async function startContentPipeline(): Promise<void> {
 		settings = next;
 		applyBlurStyles(next);
 		setRegionSettings(next);
+		applyYouTubeShields(next);
 		// A kind toggle false→true must re-scan: elements skipped while their
 		// kind was disabled carry no data-hb-* marks for redecideAll to find.
 		const kindEnabledFlip =

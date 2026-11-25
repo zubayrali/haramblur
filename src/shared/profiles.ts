@@ -54,6 +54,8 @@ export const PROFILES: readonly Profile[] = [
 			blurryStartMode: true,
 			failClosed: true,
 			skipChildren: true,
+			revealModeImages: "off",
+			revealModeVideos: "off",
 		},
 	},
 ];

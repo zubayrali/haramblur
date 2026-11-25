@@ -9,6 +9,7 @@
 	import { getSettings, settings, watchSettings } from "../../shared/settings-store";
 	import type { Settings } from "../../shared/settings";
 	import AllowlistEditor from "../../ui/AllowlistEditor.svelte";
+	import HoldButton from "../../ui/HoldButton.svelte";
 	import Section from "../../ui/Section.svelte";
 	import SliderRow from "../../ui/SliderRow.svelte";
 	import TabBar from "../../ui/TabBar.svelte";
@@ -80,6 +81,30 @@
 	}
 
 	let activeTab = $state<string>("general");
+
+	/**
+	 * Settings lock: while `settingsLock` is on the panels are inert and the
+	 * only way to edit is a continuous hold. Unlocking is session-scoped —
+	 * the lock setting itself stays on, so the friction returns with the
+	 * next visit. (Disabling the lock entirely is a settings change like any
+	 * other once unlocked.)
+	 */
+	let unlocked = $state(false);
+
+	function isLocked(s: Settings | null): boolean {
+		return s != null && s.settingsLock && !unlocked;
+	}
+
+	/** Property-assign `inert` — the attribute's boolean rendering is
+	 * compiler-dependent, the DOM property is not. */
+	function inertable(node: HTMLElement, active: boolean) {
+		node.inert = active;
+		return {
+			update(next: boolean) {
+				node.inert = next;
+			},
+		};
+	}
 
 	function onTabChange(id: string) {
 		// replaceState: deep-linkable tabs without spamming history entries.
@@ -188,6 +213,22 @@
 	<TabBar {tabs} bind:active={activeTab} testid="options-tabs" onchange={onTabChange} />
 
 	{#if s}
+		{#if isLocked(s)}
+			<div
+				class="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-950"
+				data-testid="lock-banner"
+			>
+				<p class="text-sm font-medium text-amber-900 dark:text-amber-200">
+					{t("lockBannerTitle")}
+				</p>
+				<HoldButton
+					label={t("holdToUnlock")}
+					hint={t("holdToUnlockHint")}
+					testid="hold-to-unlock"
+					oncomplete={() => (unlocked = true)}
+				/>
+			</div>
+		{/if}
 		{#if activeTab === "general"}
 			<div
 				role="tabpanel"
@@ -195,6 +236,7 @@
 				aria-labelledby="hb-tab-general"
 				data-testid="panel-general"
 				class="space-y-4"
+				use:inertable={isLocked(s)}
 			>
 				<Section title={t("profiles")} testid="section-profiles">
 					<div class="flex gap-2">
@@ -226,6 +268,13 @@
 						testid="opt-blurry-start"
 						onchange={(v) => persist({ blurryStartMode: v })}
 					/>
+					<Toggle
+						label={t("settingsLock")}
+						hint={t("settingsLockHint")}
+						bind:checked={s.settingsLock}
+						testid="opt-settings-lock"
+						onchange={(v) => persist({ settingsLock: v })}
+					/>
 				</Section>
 
 				<Section title={t("allowlistTitle")} testid="section-allowlist">
@@ -243,6 +292,7 @@
 				aria-labelledby="hb-tab-detection"
 				data-testid="panel-detection"
 				class="space-y-4"
+				use:inertable={isLocked(s)}
 			>
 				<Section title={t("mediaToBlur")} testid="section-media">
 					<Toggle
@@ -311,6 +361,16 @@
 						testid="opt-strictness"
 					/>
 				</Section>
+
+				<Section title={t("youtubeSection")} testid="section-youtube">
+					<Toggle
+						label={t("ytCaptionCover")}
+						hint={t("ytCaptionCoverHint")}
+						bind:checked={s.youtubeCaptionCover}
+						testid="opt-yt-caption-cover"
+						onchange={(v) => persist({ youtubeCaptionCover: v })}
+					/>
+				</Section>
 			</div>
 		{:else if activeTab === "display"}
 			<div
@@ -319,6 +379,7 @@
 				aria-labelledby="hb-tab-display"
 				data-testid="panel-display"
 				class="space-y-4"
+				use:inertable={isLocked(s)}
 			>
 				<Section title={t("blurSection")} testid="section-blur">
 					<SliderRow
@@ -403,19 +464,37 @@
 				</Section>
 
 				<Section title={t("revealSection")} testid="section-reveal">
-					<p class="mb-1 text-xs text-gray-500 dark:text-gray-400">{t("unblurOnHover")}</p>
-					<Toggle
-						label={t("unblurImages")}
-						bind:checked={s.unblurImages}
-						testid="opt-unblur-images"
-						onchange={(v) => persist({ unblurImages: v })}
-					/>
-					<Toggle
-						label={t("unblurVideos")}
-						bind:checked={s.unblurVideos}
-						testid="opt-unblur-videos"
-						onchange={(v) => persist({ unblurVideos: v })}
-					/>
+					<p class="mb-1 text-xs text-gray-500 dark:text-gray-400">{t("revealModeHint")}</p>
+					<div class="py-1.5" data-testid="opt-reveal-images">
+						<label class="block text-sm font-medium text-gray-800 dark:text-gray-100" for="reveal-images">
+							{t("unblurImages")}
+						</label>
+						<select
+							id="reveal-images"
+							class="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-800 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+							value={s.revealModeImages}
+							onchange={(e) => persist({ revealModeImages: (e.target as HTMLSelectElement).value as Settings["revealModeImages"] })}
+						>
+							<option value="off">{t("revealOff")}</option>
+							<option value="hover">{t("revealHover")}</option>
+							<option value="hold">{t("revealHold")}</option>
+						</select>
+					</div>
+					<div class="py-1.5" data-testid="opt-reveal-videos">
+						<label class="block text-sm font-medium text-gray-800 dark:text-gray-100" for="reveal-videos">
+							{t("unblurVideos")}
+						</label>
+						<select
+							id="reveal-videos"
+							class="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-800 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+							value={s.revealModeVideos}
+							onchange={(e) => persist({ revealModeVideos: (e.target as HTMLSelectElement).value as Settings["revealModeVideos"] })}
+						>
+							<option value="off">{t("revealOff")}</option>
+							<option value="hover">{t("revealHover")}</option>
+							<option value="hold">{t("revealHold")}</option>
+						</select>
+					</div>
 				</Section>
 			</div>
 		{:else if activeTab === "models"}
@@ -425,6 +504,7 @@
 				aria-labelledby="hb-tab-models"
 				data-testid="panel-models"
 				class="space-y-4"
+				use:inertable={isLocked(s)}
 			>
 				<Section title={t("models")} testid="section-models">
 					<p class="mb-2 text-xs text-gray-500 dark:text-gray-400">{t("modelsHint")}</p>
@@ -507,6 +587,7 @@
 				aria-labelledby="hb-tab-advanced"
 				data-testid="panel-advanced"
 				class="space-y-4"
+				use:inertable={isLocked(s)}
 			>
 				<Section title={t("advancedSection")} testid="section-advanced">
 					<Toggle

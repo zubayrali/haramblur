@@ -10,13 +10,24 @@
  * the v1 → v2 migration runs on the user's real stored object on update.
  */
 export const SETTINGS_KEY = "sync:hb-settings";
-export const SETTINGS_VERSION = 6;
+export const SETTINGS_VERSION = 7;
 
 /** How blurred media is censored visually. */
 export type CensorStyle = "blur" | "solid" | "static" | "pattern";
 
 /** How far a blurred face region expands to cover hair/neck/body. */
 export type CoverageMode = "face" | "head" | "body";
+
+/**
+ * How (and whether) the user can reveal censored media:
+ * - `off`   — no interactive reveal; the context-menu reveal is disabled too.
+ * - `hover` — hovering reveals after a delay; clicking reveals permanently
+ *   (the 0.2.x behaviour the boolean toggles used to gate).
+ * - `hold`  — press-and-hold peeks while the pointer stays down and re-blurs
+ *   on release; no permanent click reveal (the context menu still works —
+ *   it is the deliberate, high-friction path).
+ */
+export type RevealMode = "off" | "hover" | "hold";
 
 export interface Settings {
 	/** Master on/off switch (old `status`). */
@@ -44,8 +55,10 @@ export interface Settings {
 	 * (age < CHILD_AGE_MAX). Wired up once detections carry `age`.
 	 */
 	skipChildren: boolean;
-	unblurImages: boolean;
-	unblurVideos: boolean;
+	/** Interactive reveal mode for images and background media. */
+	revealModeImages: RevealMode;
+	/** Interactive reveal mode for videos. */
+	revealModeVideos: RevealMode;
 	/** Hostnames where detection is disabled (old `whitelist`). */
 	allowlist: string[];
 	/**
@@ -88,6 +101,18 @@ export interface Settings {
 	 * `pattern` (calm geometric tile).
 	 */
 	censorStyle: CensorStyle;
+	/**
+	 * Recovery friction: when on, the options UI is inert and the popup's
+	 * protection toggles are disabled. Unlocking takes a continuous ~10 s
+	 * hold on the options page. Friction, not security — a determined user
+	 * can always uninstall; the point is breaking impulsive clicks.
+	 */
+	settingsLock: boolean;
+	/**
+	 * YouTube watch pages: hide the caption/subtitle overlay while the video
+	 * itself is censored — captions carry the content past the visual censor.
+	 */
+	youtubeCaptionCover: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -102,8 +127,8 @@ export const DEFAULT_SETTINGS: Settings = {
 	blurFemale: true,
 	strictModesty: false,
 	skipChildren: true,
-	unblurImages: false,
-	unblurVideos: false,
+	revealModeImages: "off",
+	revealModeVideos: "off",
 	allowlist: [],
 	failClosed: true,
 	regionBlur: true,
@@ -112,6 +137,8 @@ export const DEFAULT_SETTINGS: Settings = {
 	escalateAreaPct: 0.3,
 	wholeImages: false,
 	censorStyle: "blur",
+	settingsLock: false,
+	youtubeCaptionCover: true,
 };
 
 /** Shape stored by HaramBlur 0.2.x under `chrome.storage.sync["hb-settings"]`. */
@@ -153,8 +180,8 @@ export function migrateLegacySettings(legacy: LegacySettings): Settings {
 		blurFemale: bool(legacy.blurFemale, DEFAULT_SETTINGS.blurFemale),
 		strictModesty: DEFAULT_SETTINGS.strictModesty,
 		skipChildren: DEFAULT_SETTINGS.skipChildren,
-		unblurImages: bool(legacy.unblurImages, DEFAULT_SETTINGS.unblurImages),
-		unblurVideos: bool(legacy.unblurVideos, DEFAULT_SETTINGS.unblurVideos),
+		revealModeImages: legacy.unblurImages === true ? "hover" : "off",
+		revealModeVideos: legacy.unblurVideos === true ? "hover" : "off",
 		allowlist: Array.isArray(legacy.whitelist)
 			? legacy.whitelist.filter((h): h is string => typeof h === "string")
 			: [],
@@ -165,5 +192,25 @@ export function migrateLegacySettings(legacy: LegacySettings): Settings {
 		escalateAreaPct: DEFAULT_SETTINGS.escalateAreaPct,
 		wholeImages: DEFAULT_SETTINGS.wholeImages,
 		censorStyle: DEFAULT_SETTINGS.censorStyle,
+		settingsLock: DEFAULT_SETTINGS.settingsLock,
+		youtubeCaptionCover: DEFAULT_SETTINGS.youtubeCaptionCover,
+	};
+}
+
+/**
+ * v6 → v7 migration: the `unblurImages`/`unblurVideos` booleans become
+ * per-kind reveal modes (`true` mapped to the same behaviour — "hover"),
+ * and the recovery-UX keys (settingsLock/youtubeCaptionCover) fill in from
+ * defaults. Pure so unit tests can drive it directly.
+ */
+export function migrateV6Settings(
+	old: Settings & { unblurImages?: boolean; unblurVideos?: boolean },
+): Settings {
+	const { unblurImages, unblurVideos, ...rest } = old;
+	return {
+		...DEFAULT_SETTINGS,
+		...rest,
+		revealModeImages: unblurImages === true ? "hover" : "off",
+		revealModeVideos: unblurVideos === true ? "hover" : "off",
 	};
 }

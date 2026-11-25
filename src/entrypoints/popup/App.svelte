@@ -108,11 +108,20 @@
 	</header>
 
 	{#if s}
+		{#if s.settingsLock}
+			<p
+				class="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+				data-testid="popup-lock-note"
+			>
+				{t("popupLockedNote")}
+			</p>
+		{/if}
 		<div class="mt-2 divide-y divide-gray-100 dark:divide-gray-800">
 			<Toggle
 				label={t("masterToggle")}
 				bind:checked={s.status}
 				testid="master-toggle"
+				disabled={s.settingsLock}
 				onchange={(v) => persist({ status: v })}
 			/>
 			{#if siteHost != null}
@@ -120,6 +129,7 @@
 					label={t("siteDetection", siteHost)}
 					bind:checked={() => !siteDisabled, (v) => toggleSite(v)}
 					testid="site-toggle"
+					disabled={s.settingsLock}
 				/>
 			{/if}
 		</div>
@@ -164,24 +174,28 @@
 				label={t("blurImages")}
 				bind:checked={s.blurImages}
 				testid="toggle-blur-images"
+				disabled={s.settingsLock}
 				onchange={(v) => persist({ blurImages: v })}
 			/>
 			<Toggle
 				label={t("blurVideos")}
 				bind:checked={s.blurVideos}
 				testid="toggle-blur-videos"
+				disabled={s.settingsLock}
 				onchange={(v) => persist({ blurVideos: v })}
 			/>
 			<Toggle
 				label={t("blurMale")}
 				bind:checked={s.blurMale}
 				testid="toggle-blur-male"
+				disabled={s.settingsLock}
 				onchange={(v) => persist({ blurMale: v })}
 			/>
 			<Toggle
 				label={t("blurFemale")}
 				bind:checked={s.blurFemale}
 				testid="toggle-blur-female"
+				disabled={s.settingsLock}
 				onchange={(v) => persist({ blurFemale: v })}
 			/>
 		</div>

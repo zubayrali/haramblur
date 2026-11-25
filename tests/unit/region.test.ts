@@ -373,10 +373,10 @@ describe("portal lifecycle", () => {
 		vi.useFakeTimers();
 		try {
 			const img = makeImg();
-			// unblurImages defaults to false — reveal is opt-in.
+			// revealModeImages defaults to "off" — reveal is opt-in.
 			applyBlurMode(img, [det("FEMALE_BREAST_EXPOSED", 0.9, FACE_BOX)], "image", {
 				...SETTINGS,
-				unblurImages: true,
+				revealModeImages: "hover",
 			});
 			const host = regionHosts()[0] as HTMLElement;
 			img.dispatchEvent(new Event("mouseenter"));
@@ -389,13 +389,13 @@ describe("portal lifecycle", () => {
 		}
 	});
 
-	it("hover reveal stays hidden when unblurImages is off", async () => {
+	it("hover reveal stays hidden when revealModeImages is off", async () => {
 		vi.useFakeTimers();
 		try {
 			const img = makeImg();
 			applyBlurMode(img, [det("FEMALE_BREAST_EXPOSED", 0.9, FACE_BOX)], "image", {
 				...SETTINGS,
-				unblurImages: false,
+				revealModeImages: "off",
 			});
 			const host = regionHosts()[0] as HTMLElement;
 			img.dispatchEvent(new Event("mouseenter"));

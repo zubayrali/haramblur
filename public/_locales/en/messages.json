@@ -131,6 +131,18 @@
 	"unblurVideos": {
 		"message": "Videos"
 	},
+	"revealOff": {
+		"message": "Off"
+	},
+	"revealHover": {
+		"message": "Hover"
+	},
+	"revealHold": {
+		"message": "Hold to peek"
+	},
+	"revealModeHint": {
+		"message": "Hover reveals after a delay and clicking pins it open. Hold to peek reveals only while pressing — nothing stays open."
+	},
 	"requiresRefresh": {
 		"message": " (requires page refresh):"
 	},
@@ -261,6 +273,24 @@
 	"failClosedHint": {
 		"message": "Fail closed: if detection times out or fails, media stays blurred."
 	},
+	"settingsLock": {
+		"message": "Settings lock"
+	},
+	"settingsLockHint": {
+		"message": "Changing settings requires a continuous 10-second hold — friction against impulsive clicks."
+	},
+	"lockBannerTitle": {
+		"message": "Settings are locked"
+	},
+	"holdToUnlock": {
+		"message": "Hold to unlock"
+	},
+	"holdToUnlockHint": {
+		"message": "Keep holding — letting go resets the timer"
+	},
+	"popupLockedNote": {
+		"message": "Locked — unlock from the settings page"
+	},
 	"aboutSection": {
 		"message": "About"
 	},
@@ -284,6 +314,15 @@
 	},
 	"feedbackEmail": {
 		"message": "Email"
+	},
+	"youtubeSection": {
+		"message": "YouTube"
+	},
+	"ytCaptionCover": {
+		"message": "Hide captions on censored videos"
+	},
+	"ytCaptionCoverHint": {
+		"message": "Captions carry the content past the visual censor — hidden while the video is blurred."
 	},
 	"profiles": {
 		"message": "Profiles"

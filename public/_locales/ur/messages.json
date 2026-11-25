@@ -131,6 +131,18 @@
 	"unblurVideos": {
 		"message": "ویڈیوز"
 	},
+	"revealOff": {
+		"message": "بند"
+	},
+	"revealHover": {
+		"message": "ہوور"
+	},
+	"revealHold": {
+		"message": "دبا کر جھلک"
+	},
+	"revealModeHint": {
+		"message": "ہوور تاخیر کے بعد دکھاتا ہے اور کلک مستقل کر دیتا ہے۔ دبائے رکھنا صرف دبائے ہوئے دکھاتا ہے — کچھ بھی کھلا نہیں رہتا۔"
+	},
 	"requiresRefresh": {
 		"message": " (صفحہ ریفریش کی ضرورت ہے):"
 	},
@@ -261,6 +273,24 @@
 	"failClosedHint": {
 		"message": "اگر جانچ ناکام ہو یا وقت ختم ہو تو میڈیا دھندلا رہتا ہے."
 	},
+	"settingsLock": {
+		"message": "ترتیبات کا قفل"
+	},
+	"settingsLockHint": {
+		"message": "ترتیبات بدلنے کے لیے مسلسل 10 سیکنڈ دبائے رکھنا ضروری ہے — جلد بازی کے کلکس کے خلاف رکاوٹ۔"
+	},
+	"lockBannerTitle": {
+		"message": "ترتیبات مقفل ہیں"
+	},
+	"holdToUnlock": {
+		"message": "کھولنے کے لیے دبائے رکھیں"
+	},
+	"holdToUnlockHint": {
+		"message": "دبائے رکھیں — چھوڑنے پر ٹائمر صفر ہو جاتا ہے"
+	},
+	"popupLockedNote": {
+		"message": "مقفل — ترتیبات کے صفحے سے کھولیں"
+	},
 	"aboutSection": {
 		"message": "متعلق"
 	},
@@ -284,6 +314,15 @@
 	},
 	"feedbackEmail": {
 		"message": "ای میل"
+	},
+	"youtubeSection": {
+		"message": "یوٹیوب"
+	},
+	"ytCaptionCover": {
+		"message": "سنسر شدہ ویڈیوز میں کیپشن چھپائیں"
+	},
+	"ytCaptionCoverHint": {
+		"message": "کیپشن مواد کو بصری سنسر کے باوجود پہنچا دیتے ہیں — ویڈیو دھندلی رہنے تک چھپے رہتے ہیں۔"
 	},
 	"profiles": {
 		"message": "پری سیٹس"

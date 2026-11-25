@@ -1,7 +1,7 @@
 import { blurCapableDetections, type PolicySettings } from "../shared/policy";
 import type { Detection } from "../shared/protocol";
 import type { Settings } from "../shared/settings";
-import { revealAllowed, setBlurred } from "./blur";
+import { revealModeFor, setBlurred } from "./blur";
 import { extractBackgroundImageUrl, type MediaKind } from "./discovery";
 
 /**
@@ -700,7 +700,7 @@ export function applyRegionBlur(
 		resizeObserver: null,
 		intersectionObserver: null,
 		revealTimer: null,
-		hoverReveal: revealAllowed(kind, settings),
+		hoverReveal: revealModeFor(kind, settings) === "hover",
 	};
 	entries.set(el, entry);
 	el.dataset.hbRegion = "1";
@@ -778,6 +778,17 @@ export function removeRegionBlur(el: HTMLElement): void {
 export function syncRegionBlur(el: HTMLElement): void {
 	const entry = entries.get(el);
 	if (entry != null) syncEntry(entry);
+}
+
+/**
+ * Hold-to-peek for region-blurred media: fade the overlay host while the
+ * pointer is held. Shares the hover reveal's opacity mechanism — the two
+ * never conflict because hover reveal is inactive in "hold" mode.
+ */
+export function peekRegionBlur(el: HTMLElement, on: boolean): void {
+	const entry = entries.get(el);
+	if (entry == null) return;
+	entry.host.style.opacity = on ? "0" : "";
 }
 
 /** Re-sync every tracked entry. */
