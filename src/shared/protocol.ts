@@ -44,6 +44,8 @@ export interface EngineStatus {
 	backend: EngineBackend | null;
 	/** Per-model backend selections when the worker reported them. */
 	backends?: Partial<Record<ModelSlot, EngineBackend>>;
+	/** Active NudeNet detector input edge once the worker is ready. */
+	detectorInputSize?: number;
 	error?: string;
 }
 
@@ -73,6 +75,10 @@ export type EngineRequest =
 			width: number;
 			height: number;
 			frameUrl?: string;
+			/** Measurement-only input-size override; production callers omit it. */
+			detectorInputSize?: number;
+			/** Measurement-only person-pass override used by DP3 benchmarking. */
+			personPassOverride?: boolean;
 			settings?: Settings;
 	  }
 	| { kind: "frame"; dataUrl: string; videoId: string; ts: number; settings?: Settings };
@@ -116,7 +122,16 @@ export interface MediaTarget {
  */
 export interface HaramBlurProtocol {
 	ping(): Pong;
-	classifyImage(data: { url: string; width: number; height: number; frameUrl?: string }): Verdict;
+	classifyImage(data: {
+		url: string;
+		width: number;
+		height: number;
+		frameUrl?: string;
+		/** Measurement-only input-size override used by eval tooling. */
+		detectorInputSize?: number;
+		/** Measurement-only person-pass override used by eval tooling. */
+		personPassOverride?: boolean;
+	}): Verdict;
 	classifyFrame(data: { dataUrl: string; videoId: string; ts: number }): Verdict;
 	engineStatus(): EngineStatus;
 	/** DP0 measurement probe: public entrypoint answered by the background. */

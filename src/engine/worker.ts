@@ -28,14 +28,16 @@ import {
 	genderProbs,
 	refineFaceDetections,
 } from "./fastface";
-import { loadOverrides } from "./model-store";
+import { loadOverrideInputSizes, loadOverrides } from "./model-store";
 import { NSFW_INPUT_SIZE, nsfwDetection, nsfwVerdict, softmax } from "./nsfw";
 import {
 	INPUT_SIZE,
 	LETTERBOX_FILL,
 	letterboxSize,
 	parseDetections,
+	resolveNudenetInputSize,
 	rgbaToTensor,
+	staticInputSizeFromShape,
 	tileRects,
 } from "./nudenet";
 import {
@@ -98,6 +100,8 @@ export interface WorkerInferMessage {
 	 * FACE_FEMALE after the detector/classifier stages.
 	 */
 	person?: boolean;
+	/** Measurement-only detector input override (eval tooling); omitted in production. */
+	detectorInputSize?: number;
 }
 
 export interface WorkerWebgpuProbeMessage {
@@ -111,7 +115,12 @@ export interface WorkerWebgpuProbeMessage {
 export type WorkerInMessage = WorkerInitMessage | WorkerInferMessage | WorkerWebgpuProbeMessage;
 
 export type WorkerOutMessage =
-	| { type: "ready"; backend: EngineBackend; backends?: Partial<Record<ModelSlot, EngineBackend>> }
+	| {
+			type: "ready";
+			backend: EngineBackend;
+			backends?: Partial<Record<ModelSlot, EngineBackend>>;
+			detectorInputSize: number;
+	  }
 	| { type: "initError"; error: string }
 	| { type: "result"; id: number; detections: Detection[]; ms: number }
 	| { type: "inferError"; id: number; error: string }
@@ -129,6 +138,10 @@ let nsfwSession: ort.InferenceSession | null = null;
 let personSession: ort.InferenceSession | null = null;
 const canvas = new OffscreenCanvas(INPUT_SIZE, INPUT_SIZE);
 const ctx = canvas.getContext("2d");
+let nudenetInputSize = INPUT_SIZE;
+let nudenetBackend: "wasm" | "webgpu" = "wasm";
+let nudenetStaticInputSize: number | null = null;
+let nudenetModelInputSize: number | undefined;
 const faceCanvas = new OffscreenCanvas(FACE_INPUT_SIZE, FACE_INPUT_SIZE);
 const faceCtx = faceCanvas.getContext("2d", { willReadFrequently: true });
 /** Square input edge of the loaded FastFace graph — 112 bundled, 128 for
@@ -158,8 +171,11 @@ let inferChain: Promise<void> = Promise.resolve();
 
 const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-function letterboxDraw(bitmap: ImageBitmap): { rgba: Uint8ClampedArray; k: number } {
-	return letterboxDrawRegion(bitmap, 0, 0, bitmap.width, bitmap.height);
+function letterboxDraw(
+	bitmap: ImageBitmap,
+	inputSize: number,
+): { rgba: Uint8ClampedArray; k: number } {
+	return letterboxDrawRegion(bitmap, 0, 0, bitmap.width, bitmap.height, inputSize);
 }
 
 /** Letterbox a source-pixel rect of the bitmap into the square input. */
@@ -169,22 +185,33 @@ function letterboxDrawRegion(
 	ry: number,
 	rw: number,
 	rh: number,
+	inputSize: number,
 ): { rgba: Uint8ClampedArray; k: number } {
 	if (ctx == null) throw new Error("OffscreenCanvas 2d context unavailable");
-	const { k, dw, dh } = letterboxSize(rw, rh);
+	if (canvas.width !== inputSize) canvas.width = inputSize;
+	if (canvas.height !== inputSize) canvas.height = inputSize;
+	const { k, dw, dh } = letterboxSize(rw, rh, inputSize);
 	ctx.fillStyle = `rgb(${LETTERBOX_FILL},${LETTERBOX_FILL},${LETTERBOX_FILL})`;
-	ctx.fillRect(0, 0, INPUT_SIZE, INPUT_SIZE);
+	ctx.fillRect(0, 0, inputSize, inputSize);
 	ctx.drawImage(bitmap, rx, ry, rw, rh, 0, 0, dw, dh);
-	const { data } = ctx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE);
+	const { data } = ctx.getImageData(0, 0, inputSize, inputSize);
 	return { rgba: data, k };
 }
 
-async function runTensor(rgba: Uint8ClampedArray): Promise<{
+async function runTensor(
+	rgba: Uint8ClampedArray,
+	inputSize: number,
+): Promise<{
 	data: Float32Array;
 	rows: number;
 	cols: number;
 }> {
-	const input = new ort.Tensor("float32", rgbaToTensor(rgba), [1, 3, INPUT_SIZE, INPUT_SIZE]);
+	const input = new ort.Tensor("float32", rgbaToTensor(rgba, inputSize), [
+		1,
+		3,
+		inputSize,
+		inputSize,
+	]);
 	const inputName = session!.inputNames[0];
 	if (inputName == null) throw new Error("model exposes no input");
 	let outputs: Record<string, ort.Tensor> | undefined;
@@ -510,19 +537,33 @@ async function infer(
 	detail: boolean,
 	settings: Settings | undefined,
 	person: boolean,
+	detectorInputSizeOverride?: number,
 ): Promise<void> {
 	if (session == null) {
 		scope.postMessage({ type: "inferError", id, error: "engine not initialized" });
 		return;
 	}
 	const t0 = performance.now();
+	const detectorInputSize = resolveNudenetInputSize({
+		backend: nudenetBackend,
+		staticSize: nudenetStaticInputSize,
+		modelInputSize: nudenetModelInputSize,
+		requestSize: detectorInputSizeOverride,
+	});
 	try {
 		let detections: Detection[] = [];
 		if (detail) {
 			// Detail pass: only tiles, remapped back to source-normalized boxes.
-			for (const rect of tileRects(bitmap.width, bitmap.height)) {
-				const { rgba, k } = letterboxDrawRegion(bitmap, rect.x, rect.y, rect.w, rect.h);
-				const { data, rows, cols } = await runTensor(rgba);
+			for (const rect of tileRects(bitmap.width, bitmap.height, detectorInputSize)) {
+				const { rgba, k } = letterboxDrawRegion(
+					bitmap,
+					rect.x,
+					rect.y,
+					rect.w,
+					rect.h,
+					detectorInputSize,
+				);
+				const { data, rows, cols } = await runTensor(rgba, detectorInputSize);
 				for (const d of parseDetections(data, rows, cols, k, rect.w, rect.h)) {
 					const [x, y, w, h] = d.box;
 					detections.push({
@@ -538,8 +579,8 @@ async function infer(
 				}
 			}
 		} else {
-			const { rgba, k } = letterboxDraw(bitmap);
-			const { data, rows, cols } = await runTensor(rgba);
+			const { rgba, k } = letterboxDraw(bitmap, detectorInputSize);
+			const { data, rows, cols } = await runTensor(rgba, detectorInputSize);
 			detections.push(...parseDetections(data, rows, cols, k, bitmap.width, bitmap.height));
 		}
 		const classifier = faceSession != null ? makeFaceClassifier(bitmap) : null;
@@ -640,9 +681,8 @@ scope.onmessage = (event) => {
 	const msg = event.data;
 	if (msg.type === "init") {
 		// OPFS model overrides (Options → Models) win over bundled URLs.
-		loadOverrides()
-			.catch(() => ({}))
-			.then((modelOverrides) =>
+		Promise.all([loadOverrides().catch(() => ({})), loadOverrideInputSizes().catch(() => ({}))])
+			.then(([modelOverrides, overrideInputSizes]) =>
 				createSession({
 					wasmBase: msg.wasmBase,
 					modelUrl: msg.modelUrl,
@@ -652,17 +692,20 @@ scope.onmessage = (event) => {
 					personModelUrl: msg.personModelUrl,
 					personModelFp32Url: msg.personModelFp32Url,
 					modelOverrides,
-				}),
+				}).then((loaded) => ({ loaded, overrideInputSizes })),
 			)
 			.then(
 				({
-					backend,
-					backends,
-					session: s,
-					faceSession: fs,
-					yunetSession: ys,
-					nsfwSession: ns,
-					personSession: ps,
+					loaded: {
+						backend,
+						backends,
+						session: s,
+						faceSession: fs,
+						yunetSession: ys,
+						nsfwSession: ns,
+						personSession: ps,
+					},
+					overrideInputSizes,
 				}) => {
 					session = s;
 					faceSession = fs;
@@ -682,13 +725,41 @@ scope.onmessage = (event) => {
 						faceCanvas.width = faceInputSize;
 						faceCanvas.height = faceInputSize;
 					}
-					scope.postMessage({ type: "ready", backend, backends });
+					const nudenetMeta = (
+						s.inputMetadata as readonly { shape?: unknown[] }[] | undefined
+					)?.[0];
+					nudenetStaticInputSize = staticInputSizeFromShape(nudenetMeta?.shape);
+					nudenetModelInputSize = (overrideInputSizes as Partial<Record<ModelSlot, number>>)
+						.nudenet;
+					nudenetBackend = backends.nudenet ?? backend;
+					nudenetInputSize = resolveNudenetInputSize({
+						backend: nudenetBackend,
+						staticSize: nudenetStaticInputSize,
+						modelInputSize: nudenetModelInputSize,
+					});
+					canvas.width = nudenetInputSize;
+					canvas.height = nudenetInputSize;
+					scope.postMessage({
+						type: "ready",
+						backend,
+						backends,
+						detectorInputSize: nudenetInputSize,
+					});
 				},
 			)
 			.catch((err) => scope.postMessage({ type: "initError", error: errMsg(err) }));
 	} else if (msg.type === "infer") {
 		inferChain = inferChain
-			.then(() => infer(msg.id, msg.bitmap, msg.detail === true, msg.settings, msg.person === true))
+			.then(() =>
+				infer(
+					msg.id,
+					msg.bitmap,
+					msg.detail === true,
+					msg.settings,
+					msg.person === true,
+					msg.detectorInputSize,
+				),
+			)
 			.catch(() => {
 				// infer() reports failures via inferError; keep the chain alive
 				// so one bad request can't stall every later inference.

@@ -13,6 +13,8 @@ export interface ModelMeta {
 	size: number;
 	installedAt: number;
 	fileName: string;
+	/** Intended input edge for dynamic detector graphs, when known. */
+	inputSize?: number;
 }
 
 export interface InstalledModel {
@@ -30,6 +32,13 @@ export interface ModelBackend {
 
 const MODEL_EXT = ".onnx";
 const META_EXT = ".json";
+
+/** Infer common NudeNet variant names (`320n.onnx`, `640m.onnx`) for manual imports. */
+function inputSizeFromFileName(slot: ModelSlot, fileName: string): { inputSize?: number } {
+	if (slot !== "nudenet") return {};
+	const match = /(?:^|[^0-9])(320|416|480|640)[a-z]?\.onnx$/i.exec(fileName);
+	return match == null ? {} : { inputSize: Number(match[1]) };
+}
 
 export class ModelStore {
 	constructor(private readonly backend: ModelBackend) {}
@@ -73,12 +82,20 @@ export class ModelStore {
 		return this.backend.get(this.modelName(slot));
 	}
 
-	async put(slot: ModelSlot, bytes: Uint8Array, fileName: string): Promise<ModelMeta> {
+	async put(
+		slot: ModelSlot,
+		bytes: Uint8Array,
+		fileName: string,
+		extra: { inputSize?: number } = {},
+	): Promise<ModelMeta> {
 		const meta: ModelMeta = {
 			sha256: await sha256Hex(bytes),
 			size: bytes.length,
 			installedAt: Date.now(),
 			fileName,
+			...(extra.inputSize != null
+				? { inputSize: extra.inputSize }
+				: inputSizeFromFileName(slot, fileName)),
 		};
 		await this.backend.put(this.modelName(slot), bytes);
 		await this.backend.put(this.metaName(slot), new TextEncoder().encode(JSON.stringify(meta)));
@@ -234,7 +251,19 @@ export async function downloadPack(
 	if (hash !== pack.sha256) {
 		throw new Error("model checksum mismatch — refusing to install");
 	}
-	return store.put(pack.slot, bytes, `${pack.id}.onnx`);
+	return store.put(pack.slot, bytes, `${pack.id}.onnx`, { inputSize: pack.inputSize });
+}
+
+/** Slot → intended input size for installed overrides that carry that metadata. */
+export async function loadOverrideInputSizes(
+	store: ModelStore = getModelStore(),
+): Promise<Partial<Record<ModelSlot, number>>> {
+	const installed = await store.list().catch(() => []);
+	const out: Partial<Record<ModelSlot, number>> = {};
+	for (const entry of installed) {
+		if (entry.meta.inputSize != null) out[entry.slot] = entry.meta.inputSize;
+	}
+	return out;
 }
 
 let shared: ModelStore | null = null;

@@ -107,7 +107,7 @@ export async function captureFrame(
 	const vh = video.videoHeight;
 	if (!vw || !vh) return null;
 
-	const { width, height } = scaledSize(vw, vh);
+	const { width, height } = scaledSize(vw, vh, env.maxFrameEdge());
 	const canvas = env.createCanvas(width, height);
 	const ctx = canvas.getContext("2d") as Canvas2dLike | null;
 	if (!ctx) return null;

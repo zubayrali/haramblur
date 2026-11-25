@@ -72,12 +72,16 @@ export interface SamplerEnvironment {
 	createCanvas: (width: number, height: number) => CanvasLike;
 	/** Page hostname for the allowlist check (`location.hostname`). */
 	hostname: () => string;
+	/** Active long-edge cap for captured frames; tracks the detector input. */
+	maxFrameEdge: () => number;
 }
 
 export interface VideoManagerDeps {
 	classifyFrame: ClassifyFrame;
 	getSettings: () => Promise<Settings>;
 	watchSettings: (cb: (next: Settings, prev: Settings) => void) => () => void;
+	/** Engine-reported detector input edge; null when unavailable. */
+	getDetectorInputSize?: () => Promise<number | null>;
 	env?: Partial<SamplerEnvironment>;
 }
 
@@ -132,5 +136,6 @@ export function defaultEnvironment(): SamplerEnvironment {
 			return canvas;
 		},
 		hostname: () => globalThis.location.hostname,
+		maxFrameEdge: () => 480,
 	};
 }

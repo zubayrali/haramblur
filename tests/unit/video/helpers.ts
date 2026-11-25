@@ -180,6 +180,7 @@ export function makeHarness(): FakeHarness {
 		createIntersectionObserver: (cb) => (io = new FakeIntersectionObserver(cb)),
 		createCanvas: fakeCanvasFactory(() => fillFn()),
 		hostname: () => "example.com",
+		maxFrameEdge: () => 480,
 	};
 	return {
 		env,

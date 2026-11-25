@@ -49,6 +49,25 @@ export type {
 export function createVideoManager(overrides: Partial<VideoManagerDeps> = {}): VideoManager {
 	return new VideoManager({
 		classifyFrame: (args) => sendMessage("classifyFrame", args),
+		getDetectorInputSize: async () => {
+			for (let i = 0; i < 80; i++) {
+				try {
+					const status = await sendMessage("engineStatus");
+					if (typeof status.detectorInputSize === "number") return status.detectorInputSize;
+					if (
+						status.state === "ready" ||
+						status.state === "degraded" ||
+						status.state === "failed"
+					) {
+						return null;
+					}
+				} catch {
+					return null;
+				}
+				await new Promise((resolve) => setTimeout(resolve, 250));
+			}
+			return null;
+		},
 		getSettings,
 		watchSettings,
 		...overrides,

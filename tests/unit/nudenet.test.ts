@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+	defaultInputSizeForBackend,
 	INPUT_SIZE,
+	inputSizeOrDefault,
 	LETTERBOX_FILL,
 	letterboxSize,
 	MAX_TILES_PER_AXIS,
@@ -8,8 +10,10 @@ import {
 	NMS_IOU,
 	nmsPerClass,
 	parseDetections,
+	resolveNudenetInputSize,
 	rgbaToTensor,
 	SCORE_FLOOR,
+	staticInputSizeFromShape,
 	tileRects,
 } from "../../src/engine/nudenet";
 import { NUDENET_LABELS } from "../../src/shared/labels";
@@ -32,6 +36,44 @@ function makeOutput(
 	}
 	return out;
 }
+
+describe("input size metadata", () => {
+	it("accepts stride-aligned sizes in the supported range", () => {
+		expect(inputSizeOrDefault(320, INPUT_SIZE)).toBe(320);
+		expect(inputSizeOrDefault(416, INPUT_SIZE)).toBe(416);
+		expect(inputSizeOrDefault(480, INPUT_SIZE)).toBe(480);
+		expect(inputSizeOrDefault(640, INPUT_SIZE)).toBe(640);
+	});
+
+	it("rejects invalid or non-stride-aligned sizes", () => {
+		for (const bad of [0, 255, 321, 1025, Number.NaN, -320]) {
+			expect(inputSizeOrDefault(bad, INPUT_SIZE)).toBe(INPUT_SIZE);
+		}
+	});
+
+	it("reads a fixed square input size from static ONNX metadata", () => {
+		expect(staticInputSizeFromShape([1, 3, 640, 640])).toBe(640);
+		expect(staticInputSizeFromShape(["batch", 3, 416, 416])).toBe(416);
+		expect(staticInputSizeFromShape(["batch", 3, "height", "width"])).toBeNull();
+		expect(staticInputSizeFromShape([1, 3, 416, 480])).toBeNull();
+	});
+
+	it("keeps WASM at 320 while allowing the GPU path more resolution", () => {
+		expect(defaultInputSizeForBackend("wasm")).toBe(320);
+		expect(defaultInputSizeForBackend("webgpu")).toBeGreaterThan(320);
+	});
+
+	it("resolves static graph, measurement override, pack metadata, then backend default", () => {
+		expect(resolveNudenetInputSize({ backend: "webgpu", staticSize: 640, requestSize: 416 })).toBe(
+			640,
+		);
+		expect(resolveNudenetInputSize({ backend: "webgpu", modelInputSize: 640 })).toBe(640);
+		expect(
+			resolveNudenetInputSize({ backend: "webgpu", modelInputSize: 640, requestSize: 416 }),
+		).toBe(416);
+		expect(resolveNudenetInputSize({ backend: "wasm" })).toBe(320);
+	});
+});
 
 describe("letterboxSize", () => {
 	it("scales to the top-left with k = min(320/w, 320/h)", () => {

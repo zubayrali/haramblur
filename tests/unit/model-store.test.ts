@@ -12,6 +12,7 @@ describe("ModelStore", () => {
 		expect(meta.size).toBe(100);
 		expect(meta.sha256).toHaveLength(64);
 		expect(meta.fileName).toBe("640m.onnx");
+		expect(meta.inputSize).toBe(640);
 
 		const got = await store.getBytes("nudenet");
 		expect(got).not.toBeNull();
@@ -53,6 +54,15 @@ describe("MODEL_PACKS catalog", () => {
 			expect(p.sha256).toMatch(/^[0-9a-f]{64}$/);
 			expect(p.sizeBytes).toBeGreaterThan(0);
 		}
+	});
+
+	it("the 640m NudeNet pack carries pinned size, hash, and input metadata", () => {
+		const pack = MODEL_PACKS.find((p) => p.id === "nudenet-640m");
+		expect(pack).toBeDefined();
+		expect(pack?.slot).toBe("nudenet");
+		expect(pack?.sha256).toBe("04fe3d77980780c1f8297dc6d7f942fd5b3abe6942a188f742a85241e4f634eb");
+		expect(pack?.sizeBytes).toBe(103_538_690);
+		expect(pack?.inputSize).toBe(640);
 	});
 
 	it("packsForSlot only returns packs for that slot", () => {

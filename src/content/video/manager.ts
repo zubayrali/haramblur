@@ -4,6 +4,7 @@ import { isAllowlisted } from "../../shared/site";
 import { blurOnError, blurWhilePending, setBlurred, setReasons, setState } from "../blur";
 import { applyBlurMode, removeRegionBlur } from "../region";
 import { reasonsToJson } from "../site";
+import { MAX_FRAME_EDGE } from "./frames";
 import { HYSTERESIS_WINDOW, isHighConfidence, VideoSampler } from "./sampler";
 import { defaultEnvironment, type SamplerEnvironment, type VideoManagerDeps } from "./types";
 
@@ -27,10 +28,15 @@ export class VideoManager {
 	private settings: Settings | null = null;
 	private unwatch: (() => void) | null = null;
 	private started = false;
+	private detectorInputSize = MAX_FRAME_EDGE;
 
 	constructor(deps: VideoManagerDeps) {
 		this.deps = deps;
-		this.env = { ...defaultEnvironment(), ...deps.env };
+		const base = { ...defaultEnvironment(), ...deps.env };
+		this.env = {
+			...base,
+			maxFrameEdge: deps.env?.maxFrameEdge ?? (() => this.detectorInputSize),
+		};
 	}
 
 	get size(): number {
@@ -44,7 +50,12 @@ export class VideoManager {
 	async start(): Promise<void> {
 		if (this.started) return;
 		this.started = true;
-		this.settings = await this.deps.getSettings();
+		const [settings, detectorInputSize] = await Promise.all([
+			this.deps.getSettings(),
+			this.deps.getDetectorInputSize?.() ?? Promise.resolve(null),
+		]);
+		if (detectorInputSize != null) this.detectorInputSize = detectorInputSize;
+		this.settings = settings;
 		this.unwatch = this.deps.watchSettings((next) => this.applySettings(next));
 	}
 

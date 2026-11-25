@@ -22,7 +22,7 @@ import type {
 import { LruCache } from "./cache";
 import { boxIou } from "./fastface";
 import { engineMachine } from "./lifecycle";
-import { mergeDetections, tileRects } from "./nudenet";
+import { INPUT_SIZE, inputSizeOrDefault, mergeDetections, tileRects } from "./nudenet";
 import { probeAdapter } from "./webgpu-adapter";
 import type { WorkerInMessage, WorkerOutMessage } from "./worker";
 
@@ -41,6 +41,8 @@ export const VERDICT_CACHE_CAP = 500;
  * Bounded worst-case cost: even at the 10 fps continuous sampler ceiling at
  * most one frame in nine carries a pass, and only when the faces actually moved. */
 export const PERSON_PASS_INTERVAL_MS = 1500;
+/** Measured WebGPU person-pass cost is only ~3–4 ms, so GPU sessions can refresh masks more often. */
+export const PERSON_PASS_INTERVAL_WEBGPU_MS = 500;
 
 /** The slice of the Worker interface the host needs (injectable for tests). */
 export interface WorkerHandle {
@@ -152,7 +154,7 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 	const bootTimeoutMs = opts.bootTimeoutMs ?? BOOT_TIMEOUT_MS;
 	const inferTimeoutMs = opts.inferTimeoutMs ?? INFER_TIMEOUT_MS;
 	const cacheCap = opts.cacheCap ?? VERDICT_CACHE_CAP;
-	const personPassIntervalMs = opts.personPassIntervalMs ?? PERSON_PASS_INTERVAL_MS;
+	const configuredPersonPassIntervalMs = opts.personPassIntervalMs;
 	const now = opts.now ?? (() => performance.now());
 	const cache = new LruCache<string, { detections: Detection[]; detailed: boolean }>(cacheCap);
 	/** Latest detections per video/image key, including videos that have no URL cache. */
@@ -160,6 +162,7 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 	/** Last granted person pass per media key: when it ran and the female-face
 	 * boxes of the frame it ran on (movement baseline for the next grant). */
 	const personPassState = new LruCache<string, { at: number; boxes: Detection["box"][] }>(cacheCap);
+	let activeDetectorInputSize: number | undefined;
 
 	const actor = createActor(engineMachine);
 	let worker: WorkerHandle | null = null;
@@ -197,6 +200,7 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 	}
 
 	function spawnAndInit(): void {
+		activeDetectorInputSize = undefined;
 		worker?.terminate();
 		failPending("engine worker restarted");
 		worker = spawn();
@@ -230,6 +234,7 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 			case "ready":
 				if (initTimer != null) clearTimeout(initTimer);
 				initTimer = null;
+				activeDetectorInputSize = msg.detectorInputSize;
 				actor.send({ type: "READY", backend: msg.backend, backends: msg.backends });
 				break;
 			case "initError":
@@ -307,6 +312,7 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 		detail: boolean,
 		settings: Settings,
 		person = false,
+		detectorInputSize?: number,
 	): Promise<Detection[]> {
 		const id = ++inferSeq;
 		return new Promise((resolve, reject) => {
@@ -317,7 +323,15 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 			pending.set(id, { resolve, reject, timer });
 			// No transfer: the bitmap may be needed for a follow-up detail
 			// pass; the host closes it once the verdict is decided.
-			worker?.postMessage({ type: "infer", id, bitmap, detail, settings, person });
+			worker?.postMessage({
+				type: "infer",
+				id,
+				bitmap,
+				detail,
+				settings,
+				person,
+				detectorInputSize,
+			});
 		});
 	}
 
@@ -425,12 +439,16 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 				let detections: Detection[];
 				let detailed = false;
 				let personAttempted = false;
-				const tiles = tileRects(bitmap.width, bitmap.height);
+				const effectiveDetectorInputSize = inputSizeOrDefault(
+					request.kind === "image" ? request.detectorInputSize : undefined,
+					activeDetectorInputSize ?? INPUT_SIZE,
+				);
+				const tiles = tileRects(bitmap.width, bitmap.height, effectiveDetectorInputSize);
 				if (hit != null) {
 					// Cached non-detailed clear: skip the whole pass, run detail only.
 					detections = [...hit.detections];
 					if (tiles.length > 0) {
-						const tiled = await infer(bitmap, true, s, false);
+						const tiled = await infer(bitmap, true, s, false, effectiveDetectorInputSize);
 						detections = mergeDetections(detections, tiled);
 						detailed = true;
 					}
@@ -443,15 +461,22 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 					// the first blur verdict costs nothing visually on video.
 					const firstPersonGrant =
 						personUseful && request.kind === "image" && priorDetections == null;
+					const personPassIntervalMs =
+						configuredPersonPassIntervalMs ??
+						(actor.getSnapshot().context.backends?.person === "webgpu"
+							? PERSON_PASS_INTERVAL_WEBGPU_MS
+							: PERSON_PASS_INTERVAL_MS);
 					const intervalElapsed = passState == null || now() - passState.at >= personPassIntervalMs;
 					const transitionPersonGrant =
 						personUseful &&
 						priorFemaleFaces.length > 0 &&
 						intervalElapsed &&
 						(passState == null || facesMoved(priorFemaleFaces, passState.boxes));
-					const personGrant = firstPersonGrant || transitionPersonGrant;
+					const personGrant =
+						(request.kind === "image" ? request.personPassOverride : undefined) ??
+						(firstPersonGrant || transitionPersonGrant);
 					personAttempted = personGrant;
-					detections = await infer(bitmap, false, s, personGrant);
+					detections = await infer(bitmap, false, s, personGrant, effectiveDetectorInputSize);
 					// Detail pass (WP7): a `clear` verdict on an image bigger than the
 					// model input may hide faces letterboxed below the model floor, so
 					// re-scan overlapping crops before committing to clear.
@@ -461,7 +486,7 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 						// triggered). Faces small enough to need tiles are too small
 						// for silhouette refinement to matter, and unconditional
 						// person flags here would bypass the cap on every clear frame.
-						const tiled = await infer(bitmap, true, s, false);
+						const tiled = await infer(bitmap, true, s, false, effectiveDetectorInputSize);
 						detections = mergeDetections(detections, tiled);
 						detailed = true;
 					}
@@ -539,6 +564,7 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 			state: snap.value as EngineStatus["state"],
 			backend: snap.context.backend,
 			...(snap.context.backends != null ? { backends: snap.context.backends } : {}),
+			...(activeDetectorInputSize != null ? { detectorInputSize: activeDetectorInputSize } : {}),
 			error: snap.context.error ?? undefined,
 		};
 	}
