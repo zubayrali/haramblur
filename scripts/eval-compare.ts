@@ -67,6 +67,12 @@ interface WireResponse {
 }
 
 declare const chrome: {
+	storage: {
+		sync: {
+			get(key: string, callback: (value: Record<string, unknown>) => void): void;
+			set(value: Record<string, unknown>, callback?: () => void): void;
+		};
+	};
 	runtime: {
 		sendMessage(message: unknown, callback: (response: WireResponse) => void): void;
 		lastError?: { message?: string };
@@ -164,6 +170,10 @@ async function main(): Promise<void> {
 	if (!existsSync(EXTENSION_DIR)) throw new Error(`${EXTENSION_DIR} missing — run pnpm build`);
 	const manifest = JSON.parse(await readFile(MANIFEST_V2, "utf8")) as ManifestV2;
 	const splitArg = arg("--split") ?? "test";
+	const coverageMode = arg("--coverage-mode");
+	if (coverageMode != null && !["face", "head", "body"].includes(coverageMode)) {
+		throw new Error(`invalid --coverage-mode "${coverageMode}"`);
+	}
 	const splits = splitArg === "all" ? Object.keys(manifest.splits) : [splitArg];
 	const entries: { file: string; split: string; entry: ManifestEntry }[] = [];
 	for (const s of splits) {
@@ -185,6 +195,20 @@ async function main(): Promise<void> {
 		const extensionId = new URL(worker.url()).host;
 		const page = await context.newPage();
 		await page.goto(`chrome-extension://${extensionId}/popup.html`);
+		if (coverageMode != null) {
+			await page.evaluate(
+				(mode) =>
+					new Promise<void>((resolve) =>
+						chrome.storage.sync.get("hb-settings", (all) => {
+							const current = (all["hb-settings"] ?? {}) as Record<string, unknown>;
+							chrome.storage.sync.set({ "hb-settings": { ...current, coverageMode: mode } }, () =>
+								resolve(),
+							);
+						}),
+					),
+				coverageMode,
+			);
+		}
 
 		for (const { file, split, entry } of entries) {
 			const res = await page.evaluate(

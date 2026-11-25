@@ -6,7 +6,7 @@
  */
 import type { I18nKey } from "./i18n";
 
-export type ModelSlot = "nudenet" | "fastface" | "yunet" | "nsfw";
+export type ModelSlot = "nudenet" | "fastface" | "yunet" | "nsfw" | "person";
 
 export interface ModelSlotInfo {
 	id: ModelSlot;
@@ -42,6 +42,12 @@ export const MODEL_SLOTS: readonly ModelSlotInfo[] = [
 		bundledFile: "nsfwjs-u8.onnx",
 		labelKey: "modelNsfw",
 		contractKey: "modelNsfwContract",
+	},
+	{
+		id: "person",
+		bundledFile: "yolov8n-seg-fp16.onnx",
+		labelKey: "modelPerson",
+		contractKey: "modelPersonContract",
 	},
 ];
 

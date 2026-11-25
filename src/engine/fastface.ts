@@ -74,7 +74,7 @@ export function boxIou(
 	return union > 0 ? inter / union : 0;
 }
 
-interface FaceCluster {
+export interface FaceCluster {
 	/** Representative detection (highest NudeNet score in the cluster). */
 	rep: Detection;
 	/** Every FACE_* detection belonging to this face. */
@@ -86,7 +86,7 @@ interface FaceCluster {
  * `FACE_FEMALE` and `FACE_MALE` on the same box; they must share one
  * FastFace call and one output detection.
  */
-function clusterFaces(detections: readonly Detection[]): FaceCluster[] {
+export function clusterFaces(detections: readonly Detection[]): FaceCluster[] {
 	const faces = detections
 		.filter((d) => FACE_LABELS.has(d.label))
 		.sort((a, b) => b.score - a.score);

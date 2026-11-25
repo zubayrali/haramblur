@@ -5,12 +5,14 @@
  * messages carrying a transferable ImageBitmap.
  */
 import * as ort from "onnxruntime-web";
+import { bytesToBase64, packAlphaBits } from "../shared/mask";
 import { decide } from "../shared/policy";
 import type { Detection, EngineBackend } from "../shared/protocol";
 import type { Settings } from "../shared/settings";
 import { createSession } from "./backend";
 import {
 	boxIou,
+	clusterFaces,
 	FACE_CLUSTER_IOU,
 	FACE_INPUT_SIZE,
 	FACE_LABELS,
@@ -35,6 +37,18 @@ import {
 	tileRects,
 } from "./nudenet";
 import {
+	associateFacesToPersons,
+	composeMaskRgba,
+	decodePersons,
+	float32ToFloat16Bits,
+	PERSON_INPUT_SIZE,
+	type PersonInstance,
+	personInputSizeFromShape,
+	personLetterbox,
+	tensorDataToFloat32,
+	wireMask,
+} from "./person";
+import {
 	decodeYuNet,
 	landmarksPlausible,
 	letterboxRect,
@@ -53,6 +67,8 @@ export interface WorkerInitMessage {
 	yunetModelUrl?: string;
 	/** Optional nsfwjs whole-image classifier; absent → no NSFW signal. */
 	nsfwModelUrl?: string;
+	/** Optional YOLOv8 person segmentation model; absent → heuristic body boxes. */
+	personModelUrl?: string;
 }
 
 export interface WorkerInferMessage {
@@ -70,6 +86,12 @@ export interface WorkerInferMessage {
 	 * the detections already decide `blur` (the verdict can't change).
 	 */
 	settings?: Settings;
+	/**
+	 * Host-controlled permission to spend a person-segmentation pass on this
+	 * inference. The worker still gates it on a blur verdict containing
+	 * FACE_FEMALE after the detector/classifier stages.
+	 */
+	person?: boolean;
 }
 
 export type WorkerInMessage = WorkerInitMessage | WorkerInferMessage;
@@ -89,6 +111,7 @@ let session: ort.InferenceSession | null = null;
 let faceSession: ort.InferenceSession | null = null;
 let yunetSession: ort.InferenceSession | null = null;
 let nsfwSession: ort.InferenceSession | null = null;
+let personSession: ort.InferenceSession | null = null;
 const canvas = new OffscreenCanvas(INPUT_SIZE, INPUT_SIZE);
 const ctx = canvas.getContext("2d");
 const faceCanvas = new OffscreenCanvas(FACE_INPUT_SIZE, FACE_INPUT_SIZE);
@@ -101,6 +124,9 @@ const yunetCanvas = new OffscreenCanvas(YUNET_INPUT_SIZE, YUNET_INPUT_SIZE);
 const yunetCtx = yunetCanvas.getContext("2d", { willReadFrequently: true });
 const nsfwCanvas = new OffscreenCanvas(NSFW_INPUT_SIZE, NSFW_INPUT_SIZE);
 const nsfwCtx = nsfwCanvas.getContext("2d", { willReadFrequently: true });
+const personCanvas = new OffscreenCanvas(PERSON_INPUT_SIZE, PERSON_INPUT_SIZE);
+const personCtx = personCanvas.getContext("2d", { willReadFrequently: true });
+let personInputSize = { width: PERSON_INPUT_SIZE, height: PERSON_INPUT_SIZE };
 /** YuNet faces per inference pass — group photos can have many. */
 const YUNET_MAX_PER_PASS = 12;
 /** FastFace must be this confident to emit a YuNet synthetic detection. */
@@ -337,11 +363,138 @@ async function classifyNsfw(bitmap: ImageBitmap): Promise<Detection | null> {
 	}
 }
 
+interface PersonRun {
+	instances: PersonInstance[];
+	protoData: Float32Array;
+	protoDims: [number, number, number];
+}
+
+/** Centered-letterbox person pass. Both tensors are copied before disposal. */
+async function detectPersons(bitmap: ImageBitmap): Promise<PersonRun | null> {
+	if (personSession == null || personCtx == null) return null;
+	const { width: iw, height: ih } = personInputSize;
+	const lb = personLetterbox(bitmap.width, bitmap.height, personInputSize);
+	personCanvas.width = iw;
+	personCanvas.height = ih;
+	personCtx.fillStyle = "rgb(114,114,114)";
+	personCtx.fillRect(0, 0, iw, ih);
+	personCtx.drawImage(bitmap, lb.padX, lb.padY, lb.dw, lb.dh);
+	const { data: rgba } = personCtx.getImageData(0, 0, iw, ih);
+	const plane = iw * ih;
+	const tensorData = new Float32Array(3 * plane);
+	for (let i = 0; i < plane; i++) {
+		const s = i * 4;
+		tensorData[i] = rgba[s]! / 255;
+		tensorData[plane + i] = rgba[s + 1]! / 255;
+		tensorData[2 * plane + i] = rgba[s + 2]! / 255;
+	}
+	const inputName = personSession.inputNames[0];
+	if (inputName == null) return null;
+	const inputMeta = personSession.inputMetadata[0];
+	const inputType =
+		inputMeta?.isTensor === true && inputMeta.type === "float16" ? "float16" : "float32";
+	const dims: [number, number, number, number] = [1, 3, ih, iw];
+	let input: ort.Tensor;
+	if (inputType === "float16") {
+		const tensor16 = new Uint16Array(tensorData.length);
+		for (let i = 0; i < tensorData.length; i++) tensor16[i] = float32ToFloat16Bits(tensorData[i]!);
+		input = new ort.Tensor("float16", tensor16, dims);
+	} else {
+		input = new ort.Tensor("float32", tensorData, dims);
+	}
+	let outputs: Record<string, ort.Tensor> | undefined;
+	try {
+		outputs = await personSession.run({ [inputName]: input });
+		const vals = personSession.outputNames
+			.map((name) => outputs?.[name])
+			.filter((t): t is ort.Tensor => t != null);
+		const det = vals.find((t) => t.dims.length === 3);
+		const proto = vals.find((t) => t.dims.length === 4);
+		if (det == null || proto == null) return null;
+		const [db, rows, cols] = det.dims;
+		const [pb, maskDim, maskH, maskW] = proto.dims;
+		if (
+			db !== 1 ||
+			pb !== 1 ||
+			rows == null ||
+			cols == null ||
+			maskDim == null ||
+			maskH == null ||
+			maskW == null
+		) {
+			throw new Error(
+				`unexpected segmentation shapes ${JSON.stringify(det.dims)} / ${JSON.stringify(proto.dims)}`,
+			);
+		}
+		const detData = tensorDataToFloat32(det.data as ArrayLike<number>);
+		const protoData = tensorDataToFloat32(proto.data as ArrayLike<number>);
+		const instances = decodePersons({
+			detData,
+			detRows: rows,
+			detCols: cols,
+			protoDims: [maskDim, maskH, maskW],
+			letterbox: lb,
+			srcW: bitmap.width,
+			srcH: bitmap.height,
+		});
+		return instances.length > 0
+			? { instances, protoData, protoDims: [maskDim, maskH, maskW] }
+			: null;
+	} finally {
+		input.dispose();
+		if (outputs != null) {
+			for (const t of Object.values(outputs)) t.dispose();
+		}
+	}
+}
+
+/** Attach encoded silhouette masks to FACE_FEMALE detections in-place. */
+async function attachPersonMasks(bitmap: ImageBitmap, detections: Detection[]): Promise<void> {
+	const run = await detectPersons(bitmap);
+	if (run == null) return;
+	const clusters = clusterFaces(detections).filter((c) =>
+		c.members.some((m) => m.label === "FACE_FEMALE"),
+	);
+	if (clusters.length === 0) return;
+	const clusterBoxes = clusters.map((c) => {
+		const female =
+			c.members.filter((m) => m.label === "FACE_FEMALE").sort((a, b) => b.score - a.score)[0] ??
+			c.rep;
+		return female.box;
+	});
+	const masks = new Map<number, NonNullable<Detection["mask"]>>();
+	for (const assoc of associateFacesToPersons(clusterBoxes, run.instances)) {
+		let mask = masks.get(assoc.personIndex);
+		if (mask == null) {
+			const instance = run.instances[assoc.personIndex]!;
+			const raster = composeMaskRgba(
+				instance,
+				run.protoData,
+				run.protoDims,
+				personInputSize.width,
+				personInputSize.height,
+			);
+			mask = wireMask(
+				instance,
+				raster.width,
+				raster.height,
+				bytesToBase64(packAlphaBits(raster.rgba, raster.width, raster.height)),
+				raster.coverage,
+			);
+			masks.set(assoc.personIndex, mask);
+		}
+		for (const member of clusters[assoc.faceIndex]!.members) {
+			if (member.label === "FACE_FEMALE") member.mask = mask;
+		}
+	}
+}
+
 async function infer(
 	id: number,
 	bitmap: ImageBitmap,
 	detail: boolean,
 	settings: Settings | undefined,
+	person: boolean,
 ): Promise<void> {
 	if (session == null) {
 		scope.postMessage({ type: "inferError", id, error: "engine not initialized" });
@@ -441,6 +594,24 @@ async function infer(
 				if (nsfw != null) detections.push(nsfw);
 			}
 		}
+		// Person silhouettes are expensive, so the host grants at most one pass
+		// per media verdict transition and the worker independently verifies the
+		// final blur verdict actually contains FACE_FEMALE before spending it.
+		if (
+			person &&
+			personSession != null &&
+			settings != null &&
+			settings.coverageMode === "body" &&
+			settings.regionBlur &&
+			decide(detections, settings) === "blur" &&
+			detections.some((d) => d.label === "FACE_FEMALE")
+		) {
+			try {
+				await attachPersonMasks(bitmap, detections);
+			} catch (err) {
+				console.warn("[haramblur] person segmentation pass failed:", err);
+			}
+		}
 		detections.sort((a, b) => b.score - a.score);
 		scope.postMessage({ type: "result", id, detections, ms: performance.now() - t0 });
 	} catch (err) {
@@ -463,27 +634,44 @@ scope.onmessage = (event) => {
 					faceModelUrl: msg.faceModelUrl,
 					yunetModelUrl: msg.yunetModelUrl,
 					nsfwModelUrl: msg.nsfwModelUrl,
+					personModelUrl: msg.personModelUrl,
 					modelOverrides,
 				}),
 			)
-			.then(({ backend, session: s, faceSession: fs, yunetSession: ys, nsfwSession: ns }) => {
-				session = s;
-				faceSession = fs;
-				yunetSession = ys;
-				nsfwSession = ns;
-				if (fs != null) {
-					// inputMetadata shape is [batch, 3, H, W] with symbolic batch.
-					const meta = (fs.inputMetadata as readonly { shape?: unknown[] }[] | undefined)?.[0];
-					faceInputSize = fastfaceInputSizeFromShape(meta?.shape);
-					faceCanvas.width = faceInputSize;
-					faceCanvas.height = faceInputSize;
-				}
-				scope.postMessage({ type: "ready", backend });
-			})
+			.then(
+				({
+					backend,
+					session: s,
+					faceSession: fs,
+					yunetSession: ys,
+					nsfwSession: ns,
+					personSession: ps,
+				}) => {
+					session = s;
+					faceSession = fs;
+					yunetSession = ys;
+					nsfwSession = ns;
+					personSession = ps;
+					if (ps != null) {
+						const meta = (ps.inputMetadata as readonly { shape?: unknown[] }[] | undefined)?.[0];
+						personInputSize = personInputSizeFromShape(meta?.shape);
+						personCanvas.width = personInputSize.width;
+						personCanvas.height = personInputSize.height;
+					}
+					if (fs != null) {
+						// inputMetadata shape is [batch, 3, H, W] with symbolic batch.
+						const meta = (fs.inputMetadata as readonly { shape?: unknown[] }[] | undefined)?.[0];
+						faceInputSize = fastfaceInputSizeFromShape(meta?.shape);
+						faceCanvas.width = faceInputSize;
+						faceCanvas.height = faceInputSize;
+					}
+					scope.postMessage({ type: "ready", backend });
+				},
+			)
 			.catch((err) => scope.postMessage({ type: "initError", error: errMsg(err) }));
 	} else if (msg.type === "infer") {
 		inferChain = inferChain
-			.then(() => infer(msg.id, msg.bitmap, msg.detail === true, msg.settings))
+			.then(() => infer(msg.id, msg.bitmap, msg.detail === true, msg.settings, msg.person === true))
 			.catch(() => {
 				// infer() reports failures via inferError; keep the chain alive
 				// so one bad request can't stall every later inference.

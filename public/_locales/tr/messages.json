@@ -402,6 +402,12 @@
 	"modelNsfwContract": {
 		"message": "nsfwjs MobileNetV2 tüm-görüntü sınıflandırıcısı — 224×224 girdi."
 	},
+	"modelPerson": {
+		"message": "Kişi segmentasyonu"
+	},
+	"modelPersonContract": {
+		"message": "YOLOv8 FP16 örnek segmentasyon dışa aktarımı — kişi sınıfı, algılama ve maske prototipi çıktıları."
+	},
 	"modelDownload": {
 		"message": "İndir"
 	},

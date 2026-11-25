@@ -20,6 +20,12 @@ const MIME: Record<string, string> = {
 };
 
 declare const chrome: {
+	storage: {
+		sync: {
+			get(key: string, callback: (value: Record<string, unknown>) => void): void;
+			set(value: Record<string, unknown>, callback?: () => void): void;
+		};
+	};
 	runtime: {
 		sendMessage(message: unknown, callback: (response: unknown) => void): void;
 		lastError?: { message?: string };
@@ -51,8 +57,9 @@ function serveFixtures() {
 }
 
 async function main() {
-	const files = process.argv.slice(2);
-	if (files.length === 0) throw new Error("usage: probe-dets.ts <file...>");
+	const files = process.argv.slice(2).filter((f) => f !== "--body");
+	if (files.length === 0) throw new Error("usage: probe-dets.ts [--body] <file...>");
+	const bodyMode = process.argv.includes("--body");
 	const { url: base, close } = await serveFixtures();
 	const userDataDir = await mkdtemp(join(tmpdir(), "hb-probe-"));
 	const context = await chromium.launchPersistentContext(userDataDir, {
@@ -65,6 +72,19 @@ async function main() {
 		const extensionId = new URL(worker.url()).host;
 		const page = await context.newPage();
 		await page.goto(`chrome-extension://${extensionId}/popup.html`);
+		if (bodyMode) {
+			await page.evaluate(
+				() =>
+					new Promise<void>((resolve) =>
+						chrome.storage.sync.get("hb-settings", (all) => {
+							const current = (all["hb-settings"] ?? {}) as Record<string, unknown>;
+							chrome.storage.sync.set({ "hb-settings": { ...current, coverageMode: "body" } }, () =>
+								resolve(),
+							);
+						}),
+					),
+			);
+		}
 		for (const file of files) {
 			const res = await page.evaluate(
 				(url) =>

@@ -44,6 +44,8 @@ export interface EngineHostOptions {
 	yunetModelUrl?: string;
 	/** Absolute extension URL of `models/nsfwjs-u8.onnx` (optional). */
 	nsfwModelUrl?: string;
+	/** Absolute extension URL of `models/yolov8n-seg-fp16.onnx` (optional). */
+	personModelUrl?: string;
 	/** Absolute extension URL of the shipped ORT WASM assets (`/ort/`). */
 	wasmBase: string;
 	spawnWorker?: () => WorkerHandle;
@@ -91,9 +93,12 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 	const getS = opts.getSettings ?? (async () => DEFAULT_SETTINGS);
 	const bootTimeoutMs = opts.bootTimeoutMs ?? BOOT_TIMEOUT_MS;
 	const inferTimeoutMs = opts.inferTimeoutMs ?? INFER_TIMEOUT_MS;
-	const cache = new LruCache<string, { detections: Detection[]; detailed: boolean }>(
-		opts.cacheCap ?? VERDICT_CACHE_CAP,
-	);
+	const cacheCap = opts.cacheCap ?? VERDICT_CACHE_CAP;
+	const cache = new LruCache<string, { detections: Detection[]; detailed: boolean }>(cacheCap);
+	/** Latest detections per video/image key, including videos that have no URL cache. */
+	const lastDetections = new LruCache<string, Detection[]>(cacheCap);
+	/** Last female-face verdict key for which a person pass was granted. */
+	const personPassKeys = new LruCache<string, string>(cacheCap);
 
 	const actor = createActor(engineMachine);
 	let worker: WorkerHandle | null = null;
@@ -133,6 +138,7 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 			faceModelUrl: opts.faceModelUrl,
 			yunetModelUrl: opts.yunetModelUrl,
 			nsfwModelUrl: opts.nsfwModelUrl,
+			personModelUrl: opts.personModelUrl,
 		});
 	}
 
@@ -212,7 +218,12 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 		});
 	}
 
-	function infer(bitmap: ImageBitmap, detail: boolean, settings: Settings): Promise<Detection[]> {
+	function infer(
+		bitmap: ImageBitmap,
+		detail: boolean,
+		settings: Settings,
+		person = false,
+	): Promise<Detection[]> {
 		const id = ++inferSeq;
 		return new Promise((resolve, reject) => {
 			const timer = setTimeout(() => {
@@ -222,7 +233,7 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 			pending.set(id, { resolve, reject, timer });
 			// No transfer: the bitmap may be needed for a follow-up detail
 			// pass; the host closes it once the verdict is decided.
-			worker?.postMessage({ type: "infer", id, bitmap, detail, settings });
+			worker?.postMessage({ type: "infer", id, bitmap, detail, settings, person });
 		});
 	}
 
@@ -234,13 +245,48 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 			return fetchBitmap(request.url);
 		});
 
+	/**
+	 * Coarse female-face verdict key. Person passes are granted when this key
+	 * changes, not on every video frame; 5%-of-frame quantization avoids
+	 * re-running segmentation for sub-pixel detector jitter.
+	 */
+	function femaleVerdictKey(
+		detections: readonly Detection[] | undefined,
+		settings: Settings,
+	): string | null {
+		if (
+			detections == null ||
+			decide(detections, settings) !== "blur" ||
+			!detections.some((d) => d.label === "FACE_FEMALE")
+		) {
+			return null;
+		}
+		return detections
+			.filter((d) => d.label === "FACE_FEMALE")
+			.map((d) => d.box.map((v) => Math.round(v / 0.05)).join(","))
+			.sort()
+			.join("|");
+	}
+
 	async function run(request: EngineRequest): Promise<ClassifyResult> {
 		const s = request.settings ?? (await getS());
 		// The cache stores raw detections, not verdicts: `decide()` is cheap and
 		// must re-run against current settings so strictness/gender toggles take
 		// effect on cached URLs. `detailed` records whether the tiled detail
 		// pass already ran — a cached non-detailed `clear` still needs it.
-		const hit = request.kind === "image" ? cache.get(request.url) : undefined;
+		const mediaKey = request.kind === "image" ? `image:${request.url}` : `frame:${request.videoId}`;
+		// Silhouettes are only paintable in regional body-coverage mode; in face/
+		// head mode or whole-image mode the pass would be pure overhead. The image
+		// cache key carries that eligibility so turning body coverage on later
+		// re-runs inference instead of reusing maskless detections.
+		const personUseful =
+			s.coverageMode === "body" && s.regionBlur && !(s.wholeImages && request.kind === "image");
+		const cacheKey =
+			request.kind === "image" ? `${request.url}|person:${personUseful ? 1 : 0}` : "";
+		const hit = request.kind === "image" ? cache.get(cacheKey) : undefined;
+		const priorDetections = hit?.detections ?? lastDetections.get(mediaKey);
+		const priorFemaleKey = femaleVerdictKey(priorDetections, s);
+		const priorPersonKey = personPassKeys.get(mediaKey);
 		if (hit != null) {
 			const decision = decide(hit.detections, s);
 			if (decision === "blur" || hit.detailed) {
@@ -255,25 +301,36 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 			try {
 				let detections: Detection[];
 				let detailed = false;
+				let personAttempted = false;
 				const tiles = tileRects(bitmap.width, bitmap.height);
 				if (hit != null) {
 					// Cached non-detailed clear: skip the whole pass, run detail only.
 					detections = [...hit.detections];
 					if (tiles.length > 0) {
-						const tiled = await infer(bitmap, true, s);
+						const tiled = await infer(bitmap, true, s, personUseful);
 						detections = mergeDetections(detections, tiled);
 						detailed = true;
+						personAttempted = personUseful;
 					}
 				} else {
-					detections = await infer(bitmap, false, s);
+					const firstPersonGrant = personUseful && priorDetections == null;
+					const transitionPersonGrant =
+						personUseful && priorFemaleKey != null && priorFemaleKey !== priorPersonKey;
+					const personGrant = firstPersonGrant || transitionPersonGrant;
+					personAttempted = personGrant;
+					detections = await infer(bitmap, false, s, personGrant);
 					// Detail pass (WP7): a `clear` verdict on an image bigger than the
 					// model input may hide faces letterboxed below the model floor, so
 					// re-scan overlapping crops before committing to clear.
 					if (decide(detections, s) === "clear" && tiles.length > 0) {
-						const tiled = await infer(bitmap, true, s);
+						const tiled = await infer(bitmap, true, s, personUseful);
 						detections = mergeDetections(detections, tiled);
 						detailed = true;
+						personAttempted = personUseful;
 					}
+				}
+				if (personAttempted) {
+					personPassKeys.set(mediaKey, femaleVerdictKey(detections, s) ?? "__initial__");
 				}
 				const verdict: Verdict = {
 					decision: decide(detections, s),
@@ -281,8 +338,9 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 					ms: Math.round(performance.now() - t0),
 					cached: false,
 				};
+				lastDetections.set(mediaKey, detections);
 				if (request.kind === "image") {
-					cache.set(request.url, { detections, detailed });
+					cache.set(cacheKey, { detections, detailed });
 				}
 				return verdict;
 			} finally {

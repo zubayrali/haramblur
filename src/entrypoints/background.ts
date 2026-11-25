@@ -107,6 +107,7 @@ function firefoxClient(): EngineClient {
 			faceModelUrl: browser.runtime.getURL("/models/fastface-small-112.onnx"),
 			yunetModelUrl: browser.runtime.getURL("/models/yunet-2023mar.onnx"),
 			nsfwModelUrl: browser.runtime.getURL("/models/nsfwjs-u8.onnx"),
+			personModelUrl: browser.runtime.getURL("/models/yolov8n-seg-fp16.onnx"),
 			wasmBase: `${browser.runtime.getURL("/")}ort/`,
 		}));
 	return {

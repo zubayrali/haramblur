@@ -1,5 +1,5 @@
 import { decide } from "../shared/policy";
-import type { Detection, VerdictDecision } from "../shared/protocol";
+import type { Detection, PersonMask, VerdictDecision } from "../shared/protocol";
 import type { Settings } from "../shared/settings";
 
 // Allowlist helpers live in shared/site.ts so the popup and video manager
@@ -14,6 +14,8 @@ export interface ReasonEntry {
 	box?: Detection["box"];
 	/** Estimated age when a face classifier provided one (skipChildren). */
 	age?: number;
+	/** Person silhouette bits for body-coverage region masks. */
+	mask?: PersonMask;
 }
 
 /** Serialize verdict reasons as `[{label, score, box?, age?}]` JSON for `data-hb-reasons`. */
@@ -23,12 +25,26 @@ export function reasonsToJson(detections: readonly Detection[]): string {
 		score: d.score,
 		box: d.box,
 		...(d.age != null ? { age: d.age } : {}),
+		...(d.mask != null ? { mask: d.mask } : {}),
 	}));
 	return JSON.stringify(reasons);
 }
 
 const isBox = (v: unknown): v is Detection["box"] =>
 	Array.isArray(v) && v.length === 4 && v.every((n) => typeof n === "number" && Number.isFinite(n));
+
+const isMask = (v: unknown): v is PersonMask => {
+	if (typeof v !== "object" || v == null) return false;
+	const m = v as PersonMask;
+	return (
+		isBox(m.box) &&
+		typeof m.width === "number" &&
+		typeof m.height === "number" &&
+		m.width > 0 &&
+		m.height > 0 &&
+		typeof m.bits === "string"
+	);
+};
 
 /**
  * Parse `data-hb-reasons` back into detections. Entries written before boxes
@@ -47,13 +63,14 @@ export function reasonsFromJson(json: string): Detection[] {
 			) {
 				return [];
 			}
-			const { label, score, box, age } = item as ReasonEntry;
+			const { label, score, box, age, mask } = item as ReasonEntry;
 			return [
 				{
 					label,
 					score,
 					box: isBox(box) ? box : [0, 0, 0, 0],
 					...(typeof age === "number" && Number.isFinite(age) ? { age } : {}),
+					...(isMask(mask) ? { mask } : {}),
 				},
 			];
 		});

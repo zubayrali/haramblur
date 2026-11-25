@@ -59,6 +59,18 @@ describe("data-hb-reasons round-trip", () => {
 		expect(back[0]?.score).toBe(0.8);
 	});
 
+	it("round-trips person masks for region re-renders", () => {
+		const mask = {
+			box: [0.2, 0.1, 0.4, 0.8] as [number, number, number, number],
+			width: 4,
+			height: 4,
+			bits: "gA==",
+		};
+		const json = reasonsToJson([{ ...det("FACE_FEMALE", 0.9), mask }]);
+		const back = reasonsFromJson(json);
+		expect(back[0]?.mask).toEqual(mask);
+	});
+
 	it("parses corrupt JSON to an empty list", () => {
 		expect(reasonsFromJson("not json")).toEqual([]);
 		expect(reasonsFromJson('[{"nope":1}]')).toEqual([]);

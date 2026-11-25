@@ -402,6 +402,12 @@
 	"modelNsfwContract": {
 		"message": "مصنّف nsfwjs MobileNetV2 للصورة كاملة — إدخال 224×224."
 	},
+	"modelPerson": {
+		"message": "تقسيم الأشخاص"
+	},
+	"modelPersonContract": {
+		"message": "تصدير تجزئة YOLOv8 FP16 — فئة الشخص، مع مخرجات الكشف ونماذج القناع الأولية."
+	},
 	"modelDownload": {
 		"message": "تنزيل"
 	},

@@ -1,5 +1,6 @@
+import { maskBitsToRgba } from "../shared/mask";
 import { blurCapableDetections, type PolicySettings } from "../shared/policy";
-import type { Detection } from "../shared/protocol";
+import type { Detection, PersonMask } from "../shared/protocol";
 import type { Settings } from "../shared/settings";
 import { revealModeFor, setBlurred } from "./blur";
 import { extractBackgroundImageUrl, type MediaKind } from "./discovery";
@@ -93,6 +94,54 @@ export function coverageBoxFor(d: Detection, mode: Settings["coverageMode"]): De
 	return clampBox(x + w / 2 - bw / 2, y - 0.55 * h, bw, h * (1 + 0.55 + 4.5));
 }
 
+/** One paintable censor region: geometry plus an optional silhouette bitmap. */
+export interface CensorRegion {
+	box: Detection["box"];
+	mask?: PersonMask;
+}
+
+export type CensorRegionInput = Detection["box"] | CensorRegion;
+
+function isCensorRegion(input: CensorRegionInput): input is CensorRegion {
+	return !Array.isArray(input);
+}
+
+function normalizeCensorRegion(input: CensorRegionInput): CensorRegion {
+	return isCensorRegion(input) ? input : { box: input };
+}
+
+function usableMask(mask: PersonMask | undefined): mask is PersonMask {
+	return (
+		mask != null &&
+		mask.width > 0 &&
+		mask.height > 0 &&
+		mask.bits.length > 0 &&
+		mask.box.every((v) => Number.isFinite(v)) &&
+		mask.box[2] > 0 &&
+		mask.box[3] > 0
+	);
+}
+
+/**
+ * Blur-capable detections as paintable regions. In body-coverage mode an
+ * associated person mask replaces the head-ratio heuristic box outright; the
+ * mask's own instance box is the geometry so the bitmap is not rescaled.
+ */
+export function blurCensorRegions(
+	detections: readonly Detection[],
+	settings: Settings,
+): CensorRegion[] {
+	return blurCapableDetections(detections, settings)
+		.sort((a, b) => b.score - a.score)
+		.slice(0, MAX_REGIONS)
+		.map((d) => {
+			if (settings.coverageMode === "body" && usableMask(d.mask)) {
+				return { box: d.mask.box, mask: d.mask };
+			}
+			return { box: padBox(coverageBoxFor(d, settings.coverageMode)) };
+		});
+}
+
 /**
  * Normalized boxes of every detection that meets the blur bar — exactly the
  * regions that would have triggered the whole-element blur, expanded to
@@ -102,10 +151,14 @@ export function blurRegionBoxes(
 	detections: readonly Detection[],
 	settings: Settings,
 ): Detection["box"][] {
-	return blurCapableDetections(detections, settings)
-		.sort((a, b) => b.score - a.score)
-		.slice(0, MAX_REGIONS)
-		.map((d) => padBox(coverageBoxFor(d, settings.coverageMode)));
+	return blurCensorRegions(detections, settings).map((r) => r.box);
+}
+
+/** Approximate covered fraction using actual silhouette fill when known. */
+export function regionsCoveredArea(regions: readonly CensorRegion[]): number {
+	let area = 0;
+	for (const r of regions) area += r.box[2] * r.box[3] * (r.mask?.coverage ?? 1);
+	return Math.min(1, area);
 }
 
 /** Approximate covered fraction of the frame — box areas summed, overlaps
@@ -136,19 +189,20 @@ export function planCensor(
 	detections: readonly Detection[],
 	kind: MediaKind,
 	settings: Settings,
-): { whole: boolean; boxes: Detection["box"][] } {
-	const whole = { whole: true, boxes: [] as Detection["box"][] };
+): { whole: boolean; boxes: Detection["box"][]; regions: CensorRegion[] } {
+	const whole = { whole: true, boxes: [] as Detection["box"][], regions: [] as CensorRegion[] };
 	if (!settings.regionBlur || (settings.wholeImages && kind !== "video")) return whole;
 	const capable = blurCapableDetections(detections, settings);
 	if (capable.length === 0 || capable.some((d) => isFullFrameBox(d.box))) return whole;
-	const boxes = blurRegionBoxes(detections, settings);
+	const regions = blurCensorRegions(detections, settings);
+	const boxes = regions.map((r) => r.box);
 	if (boxes.length === 0) return whole;
 	if (settings.smartCensor) {
 		if (capable.some((d) => WHOLE_CENSOR_LABELS.has(d.label))) return whole;
 		if (femaleFaceCount(detections, settings) >= SMART_CENSOR_MAX_FEMALE_FACES) return whole;
-		if (boxesCoveredArea(boxes) > settings.escalateAreaPct) return whole;
+		if (regionsCoveredArea(regions) > settings.escalateAreaPct) return whole;
 	}
-	return { whole: false, boxes };
+	return { whole: false, boxes, regions };
 }
 
 /** A box covering essentially the whole frame — nothing to localize. */
@@ -336,8 +390,8 @@ let activeSettings: Settings | null = null;
 interface RegionEntry {
 	el: HTMLElement;
 	kind: MediaKind;
-	/** Padded, blur-capable normalized boxes (over image pixels). */
-	boxes: Detection["box"][];
+	/** Paintable regions (normalized over image pixels). */
+	boxes: CensorRegion[];
 	/** Visual treatment for this entry's region children. */
 	style: Settings["censorStyle"];
 	/** Host div inside the shadow root, positioned at the clipped rect. */
@@ -375,6 +429,9 @@ function ensurePortal(): ShadowRoot {
 	backdrop-filter: blur(var(--hb-blur, 20px)) grayscale(var(--hb-gray, 100%));
 	-webkit-backdrop-filter: blur(var(--hb-blur, 20px)) grayscale(var(--hb-gray, 100%));
 	border-radius: 12%;
+}
+.${REGION_CLASS}.hb-rr-mask {
+	border-radius: 0;
 }
 .${REGION_CLASS}.hb-rr-solid {
 	backdrop-filter: none;
@@ -563,7 +620,7 @@ function syncEntry(entry: RegionEntry): void {
 		const region = entry.regions[i];
 		const box = entry.boxes[i];
 		if (region == null || box == null) continue;
-		const r = regionToElementPx(box, content);
+		const r = regionToElementPx(box.box, content);
 		// Element-box px → viewport px → host-relative (host sits at clip).
 		region.style.left = `${rect.left + r.x - clip.x}px`;
 		region.style.top = `${rect.top + r.y - clip.y}px`;
@@ -648,6 +705,34 @@ function requestUpgrade(u: Upgrade): void {
 	}
 }
 
+const maskUrlCache = new Map<string, string>();
+
+/** Rasterize packed mask bits to a PNG data URL for CSS `mask-image`. */
+function maskDataUrl(mask: PersonMask): string | null {
+	const key = `${mask.width}x${mask.height}:${mask.bits}`;
+	const hit = maskUrlCache.get(key);
+	if (hit != null) return hit;
+	if (typeof document === "undefined") return null;
+	const canvas = document.createElement("canvas");
+	canvas.width = mask.width;
+	canvas.height = mask.height;
+	const ctx = canvas.getContext("2d");
+	if (ctx == null || typeof ImageData !== "function") return null;
+	try {
+		ctx.putImageData(
+			new ImageData(maskBitsToRgba(mask.bits, mask.width, mask.height), mask.width, mask.height),
+			0,
+			0,
+		);
+		const url = canvas.toDataURL("image/png");
+		if (maskUrlCache.size > 100) maskUrlCache.clear();
+		maskUrlCache.set(key, url);
+		return url;
+	} catch {
+		return null;
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -665,12 +750,13 @@ export function hasRegionBlur(el: HTMLElement): boolean {
  */
 export function applyRegionBlur(
 	el: HTMLElement,
-	boxes: readonly Detection["box"][],
+	regionInputs: readonly CensorRegionInput[],
 	kind: MediaKind,
 	settings: Settings,
 ): boolean {
 	removeRegionBlur(el);
-	if (boxes.length === 0) return false;
+	const shapes = regionInputs.map(normalizeCensorRegion).slice(0, MAX_REGIONS);
+	if (shapes.length === 0) return false;
 	if (typeof el.getBoundingClientRect !== "function") return false;
 	const rect = el.getBoundingClientRect();
 	if (rect.width <= 0 || rect.height <= 0) return false;
@@ -682,9 +768,19 @@ export function applyRegionBlur(
 	const host = document.createElement("div");
 	host.className = HOST_CLASS;
 	const styleClass = settings.censorStyle === "blur" ? "" : ` hb-rr-${settings.censorStyle}`;
-	const regions = boxes.slice(0, MAX_REGIONS).map(() => {
+	const regions = shapes.map((shape) => {
 		const r = document.createElement("div");
-		r.className = `${REGION_CLASS}${styleClass}`;
+		const maskUrl = shape.mask != null ? maskDataUrl(shape.mask) : null;
+		r.className = `${REGION_CLASS}${styleClass}${maskUrl != null ? " hb-rr-mask" : ""}`;
+		if (maskUrl != null) {
+			const value = `url("${maskUrl}")`;
+			r.style.setProperty("mask-image", value);
+			r.style.setProperty("-webkit-mask-image", value);
+			r.style.setProperty("mask-size", "100% 100%");
+			r.style.setProperty("-webkit-mask-size", "100% 100%");
+			r.style.setProperty("mask-repeat", "no-repeat");
+			r.style.setProperty("-webkit-mask-repeat", "no-repeat");
+		}
 		host.appendChild(r);
 		return r;
 	});
@@ -693,7 +789,7 @@ export function applyRegionBlur(
 	const entry: RegionEntry = {
 		el,
 		kind,
-		boxes: boxes.slice(0, MAX_REGIONS),
+		boxes: shapes,
 		style: settings.censorStyle,
 		host,
 		regions,
@@ -837,7 +933,7 @@ export function applyBlurMode(
 		setBlurred(el, true); // geometry never resolves → blur fallback
 		return;
 	}
-	if (!plan.whole && applyRegionBlur(el, plan.boxes, kind, settings)) {
+	if (!plan.whole && applyRegionBlur(el, plan.regions, kind, settings)) {
 		return;
 	}
 	// Region apply failed — likely unloaded media or undecoded bg URL.
