@@ -9,6 +9,7 @@ import { bytesToBase64, packAlphaBits } from "../shared/mask";
 import { decide } from "../shared/policy";
 import type { Detection, EngineBackend } from "../shared/protocol";
 import type { Settings } from "../shared/settings";
+import type { WebGpuContextReport } from "../shared/webgpu-probe";
 import { createSession } from "./backend";
 import {
 	boxIou,
@@ -48,6 +49,8 @@ import {
 	tensorDataToFloat32,
 	wireMask,
 } from "./person";
+import { probeAdapter } from "./webgpu-adapter";
+import { probeWebgpuContext } from "./webgpu-probe";
 import {
 	decodeYuNet,
 	landmarksPlausible,
@@ -94,13 +97,22 @@ export interface WorkerInferMessage {
 	person?: boolean;
 }
 
-export type WorkerInMessage = WorkerInitMessage | WorkerInferMessage;
+export interface WorkerWebgpuProbeMessage {
+	type: "probeWebgpu";
+	id: number;
+	modelUrl: string;
+	wasmBase: string;
+	warmRuns: number;
+}
+
+export type WorkerInMessage = WorkerInitMessage | WorkerInferMessage | WorkerWebgpuProbeMessage;
 
 export type WorkerOutMessage =
 	| { type: "ready"; backend: EngineBackend }
 	| { type: "initError"; error: string }
 	| { type: "result"; id: number; detections: Detection[]; ms: number }
-	| { type: "inferError"; id: number; error: string };
+	| { type: "inferError"; id: number; error: string }
+	| { type: "webgpuProbeResult"; id: number; report: WebGpuContextReport };
 
 const scope = self as unknown as {
 	onmessage: ((event: MessageEvent<WorkerInMessage>) => void) | null;
@@ -675,6 +687,34 @@ scope.onmessage = (event) => {
 			.catch(() => {
 				// infer() reports failures via inferError; keep the chain alive
 				// so one bad request can't stall every later inference.
+			});
+	} else if (msg.type === "probeWebgpu") {
+		inferChain = inferChain
+			.then(async () => {
+				let report: WebGpuContextReport;
+				try {
+					report = await probeWebgpuContext({
+						context: "worker",
+						modelUrl: msg.modelUrl,
+						wasmBase: msg.wasmBase,
+						warmRuns: msg.warmRuns,
+						runZeroTensor: true,
+					});
+				} catch (err) {
+					// probeWebgpuContext is designed to convert failures into report
+					// data; this fallback is for unexpected implementation errors so
+					// the host never hangs waiting for a probe response.
+					report = {
+						context: "worker",
+						adapter: await probeAdapter(),
+						zeroTensor: { attempted: true, warmRunsMs: [], error: errMsg(err) },
+					};
+				}
+				scope.postMessage({ type: "webgpuProbeResult", id: msg.id, report });
+			})
+			.catch(() => {
+				// The fallback above is the error boundary; keep the serialization
+				// chain alive even if postMessage itself fails.
 			});
 	}
 };

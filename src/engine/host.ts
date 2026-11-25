@@ -14,16 +14,26 @@ import type {
 	Verdict,
 } from "../shared/protocol";
 import { DEFAULT_SETTINGS, type Settings } from "../shared/settings";
+import type {
+	WebGpuContextReport,
+	WebGpuProbeReport,
+	WebGpuZeroTensorReport,
+} from "../shared/webgpu-probe";
 import { LruCache } from "./cache";
 import { boxIou } from "./fastface";
 import { engineMachine } from "./lifecycle";
 import { mergeDetections, tileRects } from "./nudenet";
+import { probeAdapter } from "./webgpu-adapter";
 import type { WorkerInMessage, WorkerOutMessage } from "./worker";
 
 /** Requests during `booting` wait up to this long, then answer `{error}`. */
 export const BOOT_TIMEOUT_MS = 30_000;
 /** A single inference may not hang forever. */
 export const INFER_TIMEOUT_MS = 30_000;
+/** DP0 includes shader compilation, so it shares the bounded inference budget. */
+export const WEBGPU_PROBE_TIMEOUT_MS = 30_000;
+/** Warm runs after the shader-compiling cold run. */
+export const WEBGPU_PROBE_WARM_RUNS = 8;
 /** Abort a stalled image fetch so it can't hold a queue slot forever. */
 export const FETCH_TIMEOUT_MS = 15_000;
 export const VERDICT_CACHE_CAP = 500;
@@ -70,6 +80,8 @@ export interface EngineHostOptions {
 export interface EngineHost {
 	run(request: EngineRequest): Promise<ClassifyResult>;
 	status(): EngineStatus;
+	/** DP0 measurement probe; measurement-only, never changes backend selection. */
+	probeWebgpu(): Promise<WebGpuProbeReport>;
 	dispose(): void;
 }
 
@@ -77,6 +89,7 @@ const defaultSpawn = (): WorkerHandle =>
 	new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
 
 const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
+const emptyZeroTensor = (): WebGpuZeroTensorReport => ({ attempted: false, warmRunsMs: [] });
 
 const DATA_URL_RE = /^data:([^;,]*)?(;base64)?,(.*)$/s;
 
@@ -150,10 +163,19 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 	let worker: WorkerHandle | null = null;
 	let initTimer: ReturnType<typeof setTimeout> | null = null;
 	let inferSeq = 0;
+	let probeSeq = 0;
 	const pending = new Map<
 		number,
 		{
 			resolve: (detections: Detection[]) => void;
+			reject: (err: Error) => void;
+			timer: ReturnType<typeof setTimeout>;
+		}
+	>();
+	const probePending = new Map<
+		number,
+		{
+			resolve: (report: WebGpuContextReport) => void;
 			reject: (err: Error) => void;
 			timer: ReturnType<typeof setTimeout>;
 		}
@@ -165,6 +187,11 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 			p.reject(new Error(error));
 		}
 		pending.clear();
+		for (const p of probePending.values()) {
+			clearTimeout(p.timer);
+			p.reject(new Error(error));
+		}
+		probePending.clear();
 	}
 
 	function spawnAndInit(): void {
@@ -219,6 +246,14 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 				pending.delete(msg.id);
 				clearTimeout(p.timer);
 				p.reject(new Error(msg.error));
+				break;
+			}
+			case "webgpuProbeResult": {
+				const p = probePending.get(msg.id);
+				if (p == null) break;
+				probePending.delete(msg.id);
+				clearTimeout(p.timer);
+				p.resolve(msg.report);
 				break;
 			}
 		}
@@ -280,6 +315,28 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 			// No transfer: the bitmap may be needed for a follow-up detail
 			// pass; the host closes it once the verdict is decided.
 			worker?.postMessage({ type: "infer", id, bitmap, detail, settings, person });
+		});
+	}
+
+	function requestWorkerProbe(): Promise<WebGpuContextReport> {
+		const id = ++probeSeq;
+		return new Promise((resolve, reject) => {
+			if (worker == null) {
+				reject(new Error("engine worker unavailable"));
+				return;
+			}
+			const timer = setTimeout(() => {
+				probePending.delete(id);
+				reject(new Error(`WebGPU probe timed out after ${WEBGPU_PROBE_TIMEOUT_MS}ms`));
+			}, WEBGPU_PROBE_TIMEOUT_MS);
+			probePending.set(id, { resolve, reject, timer });
+			worker.postMessage({
+				type: "probeWebgpu",
+				id,
+				modelUrl: opts.modelUrl,
+				wasmBase: opts.wasmBase,
+				warmRuns: WEBGPU_PROBE_WARM_RUNS,
+			});
 		});
 	}
 
@@ -435,6 +492,44 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 		}
 	}
 
+	async function probeWebgpu(): Promise<WebGpuProbeReport> {
+		// Always collect the host-main adapter surface. If the dedicated worker
+		// cannot see/use WebGPU, DP0 needs this comparison to decide whether the
+		// engine host architecture — not the GPU itself — is the blocker.
+		const hostAdapter = await probeAdapter();
+		const hostMainSkipped: WebGpuContextReport = {
+			context: "host-main",
+			adapter: hostAdapter,
+			zeroTensor: emptyZeroTensor(),
+		};
+		const bootError = await waitForReady(bootTimeoutMs);
+		if (bootError != null) return { contexts: [hostMainSkipped], error: bootError };
+
+		let workerReport: WebGpuContextReport;
+		let probeTransportError: string | undefined;
+		try {
+			workerReport = await requestWorkerProbe();
+		} catch (err) {
+			probeTransportError = errMsg(err);
+			workerReport = {
+				context: "worker",
+				adapter: {
+					navigatorGpu: false,
+					adapter: false,
+					shaderF16: false,
+					features: [],
+					limits: {},
+				},
+				zeroTensor: { attempted: true, warmRunsMs: [], error: probeTransportError },
+			};
+		}
+
+		return {
+			contexts: [workerReport, hostMainSkipped],
+			...(probeTransportError != null ? { error: probeTransportError } : {}),
+		};
+	}
+
 	function status(): EngineStatus {
 		const snap = actor.getSnapshot();
 		return {
@@ -451,5 +546,5 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 		actor.stop();
 	}
 
-	return { run, status, dispose };
+	return { run, status, probeWebgpu, dispose };
 }

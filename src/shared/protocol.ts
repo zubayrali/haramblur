@@ -1,6 +1,7 @@
 import { defineExtensionMessaging } from "@webext-core/messaging";
 import type { DetectionLabel } from "./labels";
 import type { Settings } from "./settings";
+import type { WebGpuProbeReport } from "./webgpu-probe";
 
 /** Binary person-instance mask, normalized over the source media. */
 export interface PersonMask {
@@ -115,11 +116,15 @@ export interface HaramBlurProtocol {
 	classifyImage(data: { url: string; width: number; height: number; frameUrl?: string }): Verdict;
 	classifyFrame(data: { dataUrl: string; videoId: string; ts: number }): Verdict;
 	engineStatus(): EngineStatus;
+	/** DP0 measurement probe: public entrypoint answered by the background. */
+	webgpuProbe(): WebGpuProbeReport;
 	getTabStats(data: { tabId: number }): TabStats;
 	revealMedia(data: MediaTarget): void;
 	recheckMedia(data: MediaTarget): void;
 	engineRun(request: EngineRequest): ClassifyResult;
 	engineHostStatus(): EngineStatus;
+	/** Internal background → offscreen/host forwarding for `webgpuProbe`. */
+	engineHostWebgpuProbe(): WebGpuProbeReport;
 }
 
 export const { sendMessage, onMessage } = defineExtensionMessaging<HaramBlurProtocol>();

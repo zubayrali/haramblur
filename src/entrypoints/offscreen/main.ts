@@ -33,3 +33,6 @@ onMessage("engineHostStatus", () =>
 		? { state: "failed", backend: null, error: `host boot failed: ${bootError}` }
 		: host.status(),
 );
+onMessage("engineHostWebgpuProbe", () =>
+	host == null ? { contexts: [], error: `host boot failed: ${bootError}` } : host.probeWebgpu(),
+);
