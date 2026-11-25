@@ -344,5 +344,23 @@
 	},
 	"modelNsfwContract": {
 		"message": "nsfwjs MobileNetV2 tüm-görüntü sınıflandırıcısı — 224×224 girdi."
+	},
+	"modelDownload": {
+		"message": "İndir"
+	},
+	"modelDownloading": {
+		"message": "İndiriliyor"
+	},
+	"packYunetInt8": {
+		"message": "YuNet int8 (kompakt)"
+	},
+	"packYunetInt8Desc": {
+		"message": "98 KB niceleyici yüz dedektörü — aynı çıktı sözleşmesi, daha küçük boyut"
+	},
+	"packFastfaceInt8": {
+		"message": "FastFace int8 (kompakt)"
+	},
+	"packFastfaceInt8Desc": {
+		"message": "1,5 MB niceleyici cinsiyet sınıflandırıcısı — aynı 112px sözleşmesi, daha küçük boyut"
 	}
 }

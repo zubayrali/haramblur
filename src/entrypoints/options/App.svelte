@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { browser } from "wxt/browser";
-	import { getModelStore, type InstalledModel } from "../../engine/model-store";
+	import { downloadPack, getModelStore, type InstalledModel } from "../../engine/model-store";
 	import { t } from "../../shared/i18n";
 	import { MODEL_SLOTS, type ModelSlot } from "../../shared/model-slots";
+	import { packsForSlot, type ModelPack } from "../../shared/model-packs";
 	import { PROFILES, profileSettings } from "../../shared/profiles";
 	import { getSettings, settings, watchSettings } from "../../shared/settings-store";
 	import type { Settings } from "../../shared/settings";
@@ -97,6 +98,26 @@
 	async function removeModel(slot: ModelSlot) {
 		await getModelStore().remove(slot);
 		await refreshModels();
+	}
+
+	let downloading = $state<Record<string, number>>({});
+	let packError = $state<string | null>(null);
+
+	async function download(pack: ModelPack) {
+		packError = null;
+		downloading = { ...downloading, [pack.id]: 0 };
+		try {
+			await downloadPack(pack, getModelStore(), (p) => {
+				downloading = { ...downloading, [pack.id]: Math.round((p.received / p.total) * 100) };
+			});
+			await refreshModels();
+		} catch (err) {
+			packError = err instanceof Error ? err.message : String(err);
+		} finally {
+			const d = { ...downloading };
+			delete d[pack.id];
+			downloading = d;
+		}
 	}
 
 	const previewFilter = $derived(
@@ -196,9 +217,30 @@
 							</div>
 						</div>
 						<p class="mt-1 text-[11px] text-gray-400 dark:text-gray-500">{t(slot.contractKey)}</p>
+						{#each packsForSlot(slot.id) as pack (pack.id)}
+							<div class="mt-1.5 flex items-center gap-2">
+								<button
+									type="button"
+									class="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:hover:bg-gray-800"
+									data-testid={`pack-download-${pack.id}`}
+									disabled={downloading[pack.id] != null}
+									onclick={() => download(pack)}
+								>
+									{downloading[pack.id] != null
+										? `${t("modelDownloading")} ${downloading[pack.id]}%`
+										: t("modelDownload")}
+								</button>
+								<span class="text-[11px] text-gray-400 dark:text-gray-500">
+									{t(pack.labelKey)} · {(pack.sizeBytes / 1048576).toFixed(1)} MB — {t(pack.descKey)}
+								</span>
+							</div>
+						{/each}
 					</li>
 				{/each}
 			</ul>
+			{#if packError != null}
+				<p class="mt-2 text-xs text-red-600 dark:text-red-400" data-testid="pack-error">{packError}</p>
+			{/if}
 			<p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{t("modelsReloadNote")}</p>
 		</Section>
 
