@@ -11,14 +11,14 @@ User testing against two shipping extensions shows our detection feels slow
 and unreliable by comparison. Reverse engineering and source reading give a
 clear picture of why:
 
-| | HaramBlur upstream 0.6.11 | Porda-AI 1.1.x | this repo (today) |
-|---|---|---|---|
-| ML runtime | TF.js **WebGL (GPU)** | TF.js **WebGL (GPU)** | onnxruntime **WASM (CPU)** |
-| detector input | 640×640 (416 turbo) | 320×320 | 320×320 |
-| video frame capture | scaled to 640px | scaled to ≤320px | ≤480px, then 320 at inference |
-| video cadence | 15–25fps capture loop | continuous one-in-flight loop | fixed ~2fps |
-| detector | proprietary 3-class + Human face/gender + nsfwjs enrich | proprietary 2-class YOLO | NudeNet 18-class + YuNet + FastFace + nsfwjs |
-| strictness model | per-class thresholds scaled down to ~0.1 floor | — | single threshold knob |
+|                     | HaramBlur upstream 0.6.11                               | Porda-AI 1.1.x                | this repo (today)                            |
+| ------------------- | ------------------------------------------------------- | ----------------------------- | -------------------------------------------- |
+| ML runtime          | TF.js **WebGL (GPU)**                                   | TF.js **WebGL (GPU)**         | onnxruntime **WASM (CPU)**                   |
+| detector input      | 640×640 (416 turbo)                                     | 320×320                       | 320×320                                      |
+| video frame capture | scaled to 640px                                         | scaled to ≤320px              | ≤480px, then 320 at inference                |
+| video cadence       | 15–25fps capture loop                                   | continuous one-in-flight loop | fixed ~2fps                                  |
+| detector            | proprietary 3-class + Human face/gender + nsfwjs enrich | proprietary 2-class YOLO      | NudeNet 18-class + YuNet + FastFace + nsfwjs |
+| strictness model    | per-class thresholds scaled down to ~0.1 floor          | —                             | single threshold knob                        |
 
 The decisive shared factor is the **GPU backend**. Both competitors feel fast
 because inference costs single-digit milliseconds, which makes high input
@@ -34,24 +34,24 @@ whatever backend exists and is worth adopting independent of the backend
 outcome.
 
 What we cannot and will not copy: both competitors' detection weights are
-proprietary and license-restricted. Parity means matching their *performance
-envelope* with open models, not their artifacts.
+proprietary and license-restricted. Parity means matching their _performance
+envelope_ with open models, not their artifacts.
 
 ## Goals (measurable)
 
 G1. NudeNet 320n@320 inference **< 15 ms** on the GPU path (WASM baseline
-    today: ~47 ms), measured in the offscreen-worker context on reference
-    hardware (M-series MacBook, mid-range Windows laptop if available).
+today: ~47 ms), measured in the offscreen-worker context on reference
+hardware (M-series MacBook, mid-range Windows laptop if available).
 G2. Effective video re-detection rate **≥ 6 fps** during active motion on GPU
-    (today: 2 fps fixed), with no fixed upper cap other than the power ceiling.
+(today: 2 fps fixed), with no fixed upper cap other than the power ceiling.
 G3. Recall on the eval dev split **not worse** than today at equal precision
-    after the threshold rework; ideally measurably better at higher input
-    resolution.
+after the threshold rework; ideally measurably better at higher input
+resolution.
 G4. WASM-only users (Firefox, no-adapter machines) regress **nowhere**: same
-    or better effective throughput via the continuous loop, same input sizes
-    as today unless measurements say otherwise.
+or better effective throughput via the continuous loop, same input sizes
+as today unless measurements say otherwise.
 G5. Detection quality validated by user on the same X.com/video fixtures that
-    motivated this workstream.
+motivated this workstream.
 
 ## Non-goals
 
