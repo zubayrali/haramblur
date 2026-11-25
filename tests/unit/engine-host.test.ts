@@ -8,6 +8,7 @@ import type {
 	PersonMask,
 } from "../../src/shared/protocol";
 import { DEFAULT_SETTINGS } from "../../src/shared/settings";
+import type { WebGpuContextReport } from "../../src/shared/webgpu-probe";
 
 const FAKE_BITMAP = { width: 8, height: 8, close: () => {} } as unknown as ImageBitmap;
 const BIG_BITMAP = { width: 960, height: 640, close: () => {} } as unknown as ImageBitmap;
@@ -30,6 +31,7 @@ class FakeWorker implements WorkerHandle {
 			detailDetections?: Detection[];
 			sequence?: Detection[][];
 			inferError?: string;
+			webgpuProbe?: WebGpuContextReport;
 		} = {},
 	) {}
 	postMessage(msg: WorkerInMessage): void {
@@ -61,6 +63,24 @@ class FakeWorker implements WorkerHandle {
 						},
 					} as MessageEvent);
 				}
+			} else if (msg.type === "probeWebgpu") {
+				this.onmessage?.({
+					data: {
+						type: "webgpuProbeResult",
+						id: msg.id,
+						report: this.opts.webgpuProbe ?? {
+							context: "worker",
+							adapter: {
+								navigatorGpu: false,
+								adapter: false,
+								shaderF16: false,
+								features: [],
+								limits: {},
+							},
+							zeroTensor: { attempted: false, warmRunsMs: [] },
+						},
+					},
+				} as MessageEvent);
 			}
 		});
 	}
@@ -97,6 +117,35 @@ describe("engine host", () => {
 		expect(host.status().state).toBe("degraded");
 		expect(host.status().backend).toBe("wasm");
 		expect("error" in verdict ? verdict.error : verdict.decision).toBe("clear");
+		host.dispose();
+	});
+
+	it("combines worker and host-main WebGPU probe reports", async () => {
+		const workerProbe: WebGpuContextReport = {
+			context: "worker",
+			adapter: {
+				navigatorGpu: true,
+				adapter: true,
+				shaderF16: true,
+				features: ["shader-f16"],
+				limits: { maxBufferSize: 1024 },
+			},
+			zeroTensor: {
+				attempted: true,
+				sessionCreateMs: 100,
+				coldRunMs: 20,
+				warmRunsMs: [4, 3, 3],
+				outputDims: [1, 22, 2100],
+			},
+		};
+		const { host, workers } = makeHost({ webgpuProbe: workerProbe });
+		const report = await host.probeWebgpu();
+		expect(report.error).toBeUndefined();
+		expect(report.contexts[0]).toEqual(workerProbe);
+		expect(report.contexts[1]?.context).toBe("host-main");
+		expect(report.contexts[1]?.adapter.navigatorGpu).toBe(false);
+		expect(report.contexts[1]?.zeroTensor.attempted).toBe(false);
+		expect(workers[0]!.posted.some((m) => m.type === "probeWebgpu")).toBe(true);
 		host.dispose();
 	});
 

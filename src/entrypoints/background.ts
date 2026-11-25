@@ -14,6 +14,7 @@ import {
 	type Verdict,
 } from "../shared/protocol";
 import { getSettings } from "../shared/settings-store";
+import type { WebGpuProbeReport } from "../shared/webgpu-probe";
 
 const OFFSCREEN_DOCUMENT_URL = "/offscreen.html";
 const REASON_WORKERS = "WORKERS" as Browser.offscreen.Reason;
@@ -31,6 +32,7 @@ const MENU_RECHECK = "hb-recheck-media";
 interface EngineClient {
 	run(request: EngineRequest): Promise<ClassifyResult>;
 	status(): Promise<EngineStatus>;
+	probeWebgpu(): Promise<WebGpuProbeReport>;
 }
 
 async function ensureOffscreenDocument(): Promise<void> {
@@ -96,6 +98,14 @@ function chromeClient(): EngineClient {
 				};
 			}
 		},
+		async probeWebgpu() {
+			try {
+				await ensure();
+				return await sendMessage("engineHostWebgpuProbe");
+			} catch (err) {
+				return { contexts: [], error: `engine host unreachable: ${errMsg(err)}` };
+			}
+		},
 	};
 }
 
@@ -113,6 +123,7 @@ function firefoxClient(): EngineClient {
 	return {
 		run: (request) => get().run(request),
 		status: async () => get().status(),
+		probeWebgpu: () => get().probeWebgpu(),
 	};
 }
 
@@ -252,6 +263,7 @@ export default defineBackground({
 			}),
 		);
 		onMessage("engineStatus", () => engine.status());
+		onMessage("webgpuProbe", () => engine.probeWebgpu());
 		onMessage("getTabStats", ({ data }) => getTabStats(data.tabId));
 
 		createContextMenus();

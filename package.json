@@ -25,6 +25,7 @@
 		"test": "vitest run",
 		"test:e2e": "playwright test",
 		"bench": "tsx scripts/bench-engine.ts",
+		"probe:webgpu": "tsx scripts/probe-webgpu.ts",
 		"eval": "tsx scripts/eval.ts",
 		"models:fetch": "tsx scripts/fetch-models.ts"
 	},
