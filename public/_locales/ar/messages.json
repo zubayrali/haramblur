@@ -14,6 +14,21 @@
 	"settings": {
 		"message": "الإعدادات"
 	},
+	"tabGeneral": {
+		"message": "عام"
+	},
+	"tabDetection": {
+		"message": "الفحص"
+	},
+	"tabDisplay": {
+		"message": "العرض"
+	},
+	"tabModels": {
+		"message": "النماذج"
+	},
+	"tabAdvanced": {
+		"message": "متقدم"
+	},
 	"blurryStart": {
 		"message": "تشويش الوسائط مسبقا:"
 	},
@@ -230,6 +245,9 @@
 	},
 	"blurPreviewCaption": {
 		"message": "معاينة مباشرة لتأثير التشويش"
+	},
+	"censorSection": {
+		"message": "الحجب"
 	},
 	"revealSection": {
 		"message": "الإظهار"

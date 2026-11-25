@@ -14,6 +14,21 @@
 	"settings": {
 		"message": "Ayarlar"
 	},
+	"tabGeneral": {
+		"message": "Genel"
+	},
+	"tabDetection": {
+		"message": "Algılama"
+	},
+	"tabDisplay": {
+		"message": "Görünüm"
+	},
+	"tabModels": {
+		"message": "Modeller"
+	},
+	"tabAdvanced": {
+		"message": "Gelişmiş"
+	},
 	"blurryStart": {
 		"message": "Yüklenirken bulanıklaştır"
 	},
@@ -230,6 +245,9 @@
 	},
 	"blurPreviewCaption": {
 		"message": "Bulanıklaştırma etkisinin canlı önizlemesi"
+	},
+	"censorSection": {
+		"message": "Sansür"
 	},
 	"revealSection": {
 		"message": "Gösterme"
