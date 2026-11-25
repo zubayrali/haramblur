@@ -4,6 +4,7 @@
  * default; a slot override in OPFS wins at engine init. All weights stay
  * local — user-initiated file picks only, no runtime CDN fetches.
  */
+import type { ModelPack } from "../shared/model-packs";
 import type { ModelSlot } from "../shared/model-slots";
 import { MODEL_SLOTS } from "../shared/model-slots";
 
@@ -182,6 +183,58 @@ export function opfsBackend(dirName = "hb-models"): ModelBackend {
 			return names;
 		},
 	};
+}
+
+export interface PackProgress {
+	received: number;
+	total: number;
+}
+
+function concatChunks(chunks: Uint8Array[]): Uint8Array {
+	const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+	let off = 0;
+	for (const c of chunks) {
+		out.set(c, off);
+		off += c.length;
+	}
+	return out;
+}
+
+/**
+ * Download a curated pack: stream to memory with progress, then verify
+ * pinned size + SHA-256 before storing — a corrupt or swapped file never
+ * reaches the engine.
+ */
+export async function downloadPack(
+	pack: ModelPack,
+	store: ModelStore,
+	onProgress?: (p: PackProgress) => void,
+	fetcher: typeof fetch = fetch,
+): Promise<ModelMeta> {
+	const res = await fetcher(pack.url);
+	if (!res.ok || res.body == null) {
+		throw new Error(`model download failed: HTTP ${res.status}`);
+	}
+	const total = Number(res.headers.get("content-length")) || pack.sizeBytes;
+	const reader = res.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let received = 0;
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		chunks.push(value);
+		received += value.length;
+		onProgress?.({ received, total });
+	}
+	const bytes = concatChunks(chunks);
+	if (bytes.length !== pack.sizeBytes) {
+		throw new Error(`model size mismatch: got ${bytes.length}, expected ${pack.sizeBytes}`);
+	}
+	const hash = await sha256Hex(bytes);
+	if (hash !== pack.sha256) {
+		throw new Error("model checksum mismatch — refusing to install");
+	}
+	return store.put(pack.slot, bytes, `${pack.id}.onnx`);
 }
 
 let shared: ModelStore | null = null;

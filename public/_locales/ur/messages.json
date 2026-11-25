@@ -344,5 +344,23 @@
 	},
 	"modelNsfwContract": {
 		"message": "nsfwjs MobileNetV2 پوری تصویر درجہ بند — 224×224 ان پٹ۔"
+	},
+	"modelDownload": {
+		"message": "ڈاؤن لوڈ"
+	},
+	"modelDownloading": {
+		"message": "ڈاؤن لوڈ ہو رہا ہے"
+	},
+	"packYunetInt8": {
+		"message": "YuNet int8 (مختصر)"
+	},
+	"packYunetInt8Desc": {
+		"message": "98 KB مقدار بند چہرہ ڈٹیکٹر — وہی آؤٹ پٹ معاہدہ، چھوٹا سائز"
+	},
+	"packFastfaceInt8": {
+		"message": "FastFace int8 (مختصر)"
+	},
+	"packFastfaceInt8Desc": {
+		"message": "1.5 MB مقدار بند جنسیت درجہ بند — وہی 112px معاہدہ، چھوٹا سائز"
 	}
 }

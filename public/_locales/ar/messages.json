@@ -344,5 +344,23 @@
 	},
 	"modelNsfwContract": {
 		"message": "مصنّف nsfwjs MobileNetV2 للصورة كاملة — إدخال 224×224."
+	},
+	"modelDownload": {
+		"message": "تنزيل"
+	},
+	"modelDownloading": {
+		"message": "جارٍ التنزيل"
+	},
+	"packYunetInt8": {
+		"message": "YuNet int8 (مدمج)"
+	},
+	"packYunetInt8Desc": {
+		"message": "كاشف وجوه مكمّم 98 كيلوبايت — نفس عقد الإخراج بحجم أصغر"
+	},
+	"packFastfaceInt8": {
+		"message": "FastFace int8 (مدمج)"
+	},
+	"packFastfaceInt8Desc": {
+		"message": "مصنّف جنس مكمّم 1.5 ميغابايت — نفس عقد 112px بحجم أصغر"
 	}
 }

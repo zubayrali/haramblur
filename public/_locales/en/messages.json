@@ -344,5 +344,23 @@
 	},
 	"modelNsfwContract": {
 		"message": "nsfwjs MobileNetV2 whole-image classifier — 224×224 input."
+	},
+	"modelDownload": {
+		"message": "Download"
+	},
+	"modelDownloading": {
+		"message": "Downloading"
+	},
+	"packYunetInt8": {
+		"message": "YuNet int8 (compact)"
+	},
+	"packYunetInt8Desc": {
+		"message": "98 KB quantized face detector — same output contract, smaller footprint"
+	},
+	"packFastfaceInt8": {
+		"message": "FastFace int8 (compact)"
+	},
+	"packFastfaceInt8Desc": {
+		"message": "1.5 MB quantized gender classifier — same 112px contract, smaller footprint"
 	}
 }
