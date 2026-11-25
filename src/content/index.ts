@@ -144,6 +144,12 @@ export async function startContentPipeline(): Promise<void> {
 			clearAll(el);
 			return;
 		}
+		// Videos must re-enter the manager even when the URL is unchanged and
+		// the rest of this handler short-circuits: SPA players (X, React keyed
+		// lists) re-parent the element, the removal mutation disposes the
+		// sampler, and without this the video is never sampled again. observe()
+		// is idempotent for elements already tracked.
+		if (isVideo) videos.observe(el);
 		const prevUrl = urlByElement.get(el);
 		if (prevUrl === candidate.url) return;
 		urlByElement.set(el, candidate.url);
@@ -166,7 +172,6 @@ export async function startContentPipeline(): Promise<void> {
 		// the poster/src URL still gets the one-shot image classification —
 		// unless the video already has frame data and is playing, in which
 		// case the sampler covers it and a poster classify would be duplicate.
-		if (isVideo) videos.observe(el);
 		const samplerOwnsVideo =
 			isVideo &&
 			el instanceof HTMLVideoElement &&
@@ -190,6 +195,14 @@ export async function startContentPipeline(): Promise<void> {
 
 	function onRemoved(el: HTMLElement): void {
 		if (el.dataset.hbKind == null) return; // never a candidate
+		// Mutation callbacks are batched: a re-parented node (React keyed move)
+		// yields a removal record even though it never leaves the document, and
+		// is already connected again when the callback runs. Tearing down the
+		// sampler + blur for such a move would kill video censoring on SPA
+		// players — only true detachments count as removals. A removal that is
+		// reverted in a *later* task still cleans up here, but the re-insertion
+		// scan re-observes through onCandidate.
+		if (el.isConnected) return;
 		if (el instanceof HTMLVideoElement) videos.unobserve(el);
 		removeRegionBlur(el);
 		clearAll(el);

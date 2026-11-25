@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { createEngineHost, type WorkerHandle } from "../../src/engine/host";
+import { carryMasksForward, createEngineHost, type WorkerHandle } from "../../src/engine/host";
 import type { WorkerInMessage, WorkerOutMessage } from "../../src/engine/worker";
-import type { Detection, EngineBackend, EngineRequest } from "../../src/shared/protocol";
+import type {
+	Detection,
+	EngineBackend,
+	EngineRequest,
+	PersonMask,
+} from "../../src/shared/protocol";
 import { DEFAULT_SETTINGS } from "../../src/shared/settings";
 
 const FAKE_BITMAP = { width: 8, height: 8, close: () => {} } as unknown as ImageBitmap;
@@ -65,6 +70,7 @@ class FakeWorker implements WorkerHandle {
 function makeHost(
 	workerOpts: ConstructorParameters<typeof FakeWorker>[0] = {},
 	bitmap: ImageBitmap = FAKE_BITMAP,
+	hostOpts: { personPassIntervalMs?: number; now?: () => number } = {},
 ) {
 	const workers: FakeWorker[] = [];
 	const host = createEngineHost({
@@ -77,6 +83,7 @@ function makeHost(
 		},
 		getSettings: async () => DEFAULT_SETTINGS,
 		decodeRequest: async () => bitmap,
+		...hostOpts,
 	});
 	return { host, workers };
 }
@@ -268,15 +275,22 @@ describe("engine host", () => {
 		const flags = workers[0]!.posted
 			.filter((m): m is Extract<WorkerInMessage, { type: "infer" }> => m.type === "infer")
 			.map((m) => m.person === true);
-		expect(flags).toEqual([true, false, false]);
+		// Video first frames never self-grant (hysteresis hides the blur for a
+		// frame anyway); the first blur verdict grants the following frame, and
+		// the static scene suppresses everything after that.
+		expect(flags).toEqual([false, true, false]);
 		host.dispose();
 	});
 
 	it("grants one follow-up pass when a female verdict appears after a clear frame", async () => {
 		const body = { ...DEFAULT_SETTINGS, coverageMode: "body" as const };
-		const { host, workers } = makeHost({
-			sequence: [[], [det("FACE_FEMALE", 0.9)], [det("FACE_FEMALE", 0.9)]],
-		});
+		const { host, workers } = makeHost(
+			{
+				sequence: [[], [det("FACE_FEMALE", 0.9)], [det("FACE_FEMALE", 0.9)]],
+			},
+			FAKE_BITMAP,
+			{ personPassIntervalMs: 0 },
+		);
 		const req = { kind: "frame" as const, dataUrl: "data:,", videoId: "v", ts: 0, settings: body };
 		await host.run(req);
 		await host.run({ ...req, ts: 500 });
@@ -284,9 +298,176 @@ describe("engine host", () => {
 		const flags = workers[0]!.posted
 			.filter((m): m is Extract<WorkerInMessage, { type: "infer" }> => m.type === "infer")
 			.map((m) => m.person === true);
-		// First frame is eligible but internally gates on clear; the female verdict
-		// appears on frame two, so frame three carries the one transition pass.
-		expect(flags).toEqual([true, false, true]);
+		// The clear first frame grants nothing; the female verdict on frame two
+		// is what grants frame three's one transition pass.
+		expect(flags).toEqual([false, false, true]);
 		host.dispose();
+	});
+
+	it("rate-caps person passes even when faces move", async () => {
+		const body = { ...DEFAULT_SETTINGS, coverageMode: "body" as const };
+		let clock = 0;
+		const moved = (dx: number): Detection => ({
+			label: "FACE_FEMALE",
+			score: 0.9,
+			box: [0.1 + dx, 0.1, 0.2, 0.2],
+		});
+		const { host, workers } = makeHost(
+			{
+				sequence: [[moved(0)], [moved(0)], [moved(0.3)], [moved(0.3)], [moved(0.35)]],
+			},
+			FAKE_BITMAP,
+			{ personPassIntervalMs: 1500, now: () => clock },
+		);
+		const req = { kind: "frame" as const, dataUrl: "data:,", videoId: "v", ts: 0, settings: body };
+		await host.run(req); // video first frame: never self-grants
+		clock = 100;
+		await host.run({ ...req, ts: 500 }); // first blur verdict behind it → first transition pass
+		clock = 600;
+		await host.run({ ...req, ts: 1000 }); // unmoved since the pass → nothing
+		clock = 1100;
+		await host.run({ ...req, ts: 1500 }); // moved, but inside the rate-cap interval
+		clock = 1700;
+		await host.run({ ...req, ts: 2000 }); // moved and interval elapsed → second pass
+		const flags = workers[0]!.posted
+			.filter((m): m is Extract<WorkerInMessage, { type: "infer" }> => m.type === "infer")
+			.map((m) => m.person === true);
+		expect(flags).toEqual([false, true, false, false, true]);
+		host.dispose();
+	});
+
+	it("does not re-run person passes for a static scene", async () => {
+		const body = { ...DEFAULT_SETTINGS, coverageMode: "body" as const };
+		let clock = 0;
+		const { host, workers } = makeHost({ detections: [det("FACE_FEMALE", 0.9)] }, FAKE_BITMAP, {
+			personPassIntervalMs: 1500,
+			now: () => clock,
+		});
+		const req = { kind: "frame" as const, dataUrl: "data:,", videoId: "v", ts: 0, settings: body };
+		await host.run(req);
+		clock = 5000;
+		await host.run({ ...req, ts: 500 });
+		clock = 10000;
+		await host.run({ ...req, ts: 1000 });
+		const flags = workers[0]!.posted
+			.filter((m): m is Extract<WorkerInMessage, { type: "infer" }> => m.type === "infer")
+			.map((m) => m.person === true);
+		// One transition pass after the first blur verdict, then nothing ever
+		// again while the scene stays static — no matter how much time passes.
+		expect(flags).toEqual([false, true, false]);
+		host.dispose();
+	});
+
+	const fakeMask: PersonMask = {
+		box: [0.05, 0.05, 0.4, 0.8],
+		width: 16,
+		height: 16,
+		bits: "AAAA",
+		coverage: 0.5,
+	};
+	const maskedFemale = (box: Detection["box"]): Detection => ({
+		label: "FACE_FEMALE",
+		score: 0.9,
+		box: [...box] as Detection["box"],
+		mask: fakeMask,
+	});
+
+	it("carries a prior frame's mask onto the matching face when no fresh pass ran", async () => {
+		const body = { ...DEFAULT_SETTINGS, coverageMode: "body" as const };
+		const frame1 = [
+			{ label: "FACE_FEMALE" as const, score: 0.9, box: [0.1, 0.1, 0.2, 0.2] as Detection["box"] },
+		];
+		const frame2 = [maskedFemale([0.1, 0.1, 0.2, 0.2])];
+		const frame3 = [
+			{ label: "FACE_FEMALE" as const, score: 0.9, box: [0.12, 0.1, 0.2, 0.2] as Detection["box"] },
+		];
+		const { host } = makeHost({ sequence: [frame1, frame2, frame3] });
+		const req = { kind: "frame" as const, dataUrl: "data:,", videoId: "v", ts: 0, settings: body };
+		await host.run(req);
+		await host.run({ ...req, ts: 500 });
+		const third = await host.run({ ...req, ts: 1000 });
+		const reasons = (third as { reasons: Detection[] }).reasons;
+		expect(reasons[0]?.mask).toEqual(fakeMask);
+		host.dispose();
+	});
+
+	it("does not carry a mask onto a face that moved away", async () => {
+		const body = { ...DEFAULT_SETTINGS, coverageMode: "body" as const };
+		const frame1 = [
+			{ label: "FACE_FEMALE" as const, score: 0.9, box: [0.1, 0.1, 0.2, 0.2] as Detection["box"] },
+		];
+		const frame2 = [maskedFemale([0.1, 0.1, 0.2, 0.2])];
+		const frame3 = [
+			{ label: "FACE_FEMALE" as const, score: 0.9, box: [0.6, 0.6, 0.2, 0.2] as Detection["box"] },
+		];
+		const { host } = makeHost({ sequence: [frame1, frame2, frame3] });
+		const req = { kind: "frame" as const, dataUrl: "data:,", videoId: "v", ts: 0, settings: body };
+		await host.run(req);
+		await host.run({ ...req, ts: 500 });
+		const third = await host.run({ ...req, ts: 1000 });
+		const reasons = (third as { reasons: Detection[] }).reasons;
+		expect(reasons[0]?.mask).toBeUndefined();
+		host.dispose();
+	});
+
+	it("carries masks across multiple frames while faces overlap", async () => {
+		const body = { ...DEFAULT_SETTINGS, coverageMode: "body" as const };
+		const frame1 = [
+			{ label: "FACE_FEMALE" as const, score: 0.9, box: [0.1, 0.1, 0.2, 0.2] as Detection["box"] },
+		];
+		const frame2 = [maskedFemale([0.1, 0.1, 0.2, 0.2])];
+		const frame3 = [
+			{ label: "FACE_FEMALE" as const, score: 0.9, box: [0.12, 0.1, 0.2, 0.2] as Detection["box"] },
+		];
+		const frame4 = [
+			{ label: "FACE_FEMALE" as const, score: 0.9, box: [0.14, 0.1, 0.2, 0.2] as Detection["box"] },
+		];
+		const { host } = makeHost({ sequence: [frame1, frame2, frame3, frame4] });
+		const req = { kind: "frame" as const, dataUrl: "data:,", videoId: "v", ts: 0, settings: body };
+		await host.run(req);
+		await host.run({ ...req, ts: 500 });
+		await host.run({ ...req, ts: 1000 });
+		const fourth = await host.run({ ...req, ts: 1500 });
+		const reasons = (fourth as { reasons: Detection[] }).reasons;
+		expect(reasons[0]?.mask).toEqual(fakeMask);
+		host.dispose();
+	});
+
+	it("does not carry masks when body coverage is off", async () => {
+		const frame1 = [maskedFemale([0.1, 0.1, 0.2, 0.2])];
+		const frame2 = [
+			{ label: "FACE_FEMALE" as const, score: 0.9, box: [0.12, 0.1, 0.2, 0.2] as Detection["box"] },
+		];
+		const { host } = makeHost({ sequence: [frame1, frame2] });
+		const req = {
+			kind: "frame" as const,
+			dataUrl: "data:,",
+			videoId: "v",
+			ts: 0,
+			settings: DEFAULT_SETTINGS,
+		};
+		await host.run(req);
+		const second = await host.run({ ...req, ts: 500 });
+		const reasons = (second as { reasons: Detection[] }).reasons;
+		// Body coverage off: mask not carried, but the frame's own data is untouched.
+		expect(reasons[0]?.mask).toBeUndefined();
+		host.dispose();
+	});
+
+	it("carryMasksForward picks the best-overlap prior mask and keeps fresh masks", () => {
+		const prior = [
+			maskedFemale([0.1, 0.1, 0.2, 0.2]),
+			{ ...maskedFemale([0.5, 0.5, 0.2, 0.2]), mask: { ...fakeMask, bits: "BBBB" } },
+		];
+		const fresh = { ...fakeMask, bits: "CCCC" };
+		const current: Detection[] = [
+			{ label: "FACE_FEMALE", score: 0.9, box: [0.52, 0.5, 0.2, 0.2] },
+			{ label: "FACE_FEMALE", score: 0.8, box: [0.1, 0.1, 0.2, 0.2], mask: fresh },
+			{ label: "FACE_MALE", score: 0.8, box: [0.1, 0.1, 0.2, 0.2] },
+		];
+		carryMasksForward(prior, current);
+		expect(current[0]?.mask?.bits).toBe("BBBB");
+		expect(current[1]?.mask?.bits).toBe("CCCC");
+		expect(current[2]?.mask).toBeUndefined();
 	});
 });
