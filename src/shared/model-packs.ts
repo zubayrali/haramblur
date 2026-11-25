@@ -39,6 +39,18 @@ export const MODEL_PACKS: readonly ModelPack[] = [
 		sha256: "6bd6201ce83bfc44a81ce77f43f4db5fff85d14c00c050844d9d2615c007ccee",
 		sizeBytes: 1_616_311,
 	},
+	{
+		// High-accuracy variant: larger backbone at a 128² input. The engine
+		// reads the input size off the loaded graph, so no engine changes are
+		// needed beyond the dynamic sizing landed with this pack.
+		id: "fastface-large-128-int8",
+		slot: "fastface",
+		labelKey: "packFastfaceLargeInt8",
+		descKey: "packFastfaceLargeInt8Desc",
+		url: "https://huggingface.co/iFurySt/fastface/resolve/main/models/fastface-large-128/model_int8_static.onnx",
+		sha256: "2834e70884800019972e588fbe95eb73ebe942120a364d8aaa60085ba4f5b9cf",
+		sizeBytes: 4_008_918,
+	},
 ];
 
 export function packsForSlot(slot: ModelSlot): ModelPack[] {

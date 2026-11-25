@@ -216,7 +216,7 @@ test("hold-to-peek reveals only while pressing", async () => {
 		// Press and hold past the 400ms peek delay — the element reports
 		// data-hb-peek, which the content CSS uses to drop the blur.
 		const box = await page.locator("#p-woman").boundingBox();
-		expect(box).not.toBeNull();
+		if (box == null) throw new Error("p-woman has no bounding box");
 		await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 		await page.mouse.down();
 		await expect(page.locator("#p-woman")).toHaveAttribute("data-hb-peek", "1", {

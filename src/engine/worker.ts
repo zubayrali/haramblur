@@ -20,6 +20,7 @@ import {
 	faceAlignTransform,
 	faceCropRect,
 	faceRgbaToTensor,
+	fastfaceInputSizeFromShape,
 	genderProbs,
 	refineFaceDetections,
 } from "./fastface";
@@ -92,6 +93,10 @@ const canvas = new OffscreenCanvas(INPUT_SIZE, INPUT_SIZE);
 const ctx = canvas.getContext("2d");
 const faceCanvas = new OffscreenCanvas(FACE_INPUT_SIZE, FACE_INPUT_SIZE);
 const faceCtx = faceCanvas.getContext("2d", { willReadFrequently: true });
+/** Square input edge of the loaded FastFace graph — 112 bundled, 128 for
+ * the large/teacher variants. Read off the session at init; every crop,
+ * tensor, and alignment target below uses it. */
+let faceInputSize = FACE_INPUT_SIZE;
 const yunetCanvas = new OffscreenCanvas(YUNET_INPUT_SIZE, YUNET_INPUT_SIZE);
 const yunetCtx = yunetCanvas.getContext("2d", { willReadFrequently: true });
 const nsfwCanvas = new OffscreenCanvas(NSFW_INPUT_SIZE, NSFW_INPUT_SIZE);
@@ -169,43 +174,29 @@ async function runTensor(rgba: Uint8ClampedArray): Promise<{
 function makeFaceClassifier(bitmap: ImageBitmap): FaceClassifier {
 	return async (box, landmarks): Promise<FaceGender | null> => {
 		if (faceSession == null || faceCtx == null) return null;
-		faceCtx.clearRect(0, 0, FACE_INPUT_SIZE, FACE_INPUT_SIZE);
+		const size = faceInputSize;
+		faceCtx.clearRect(0, 0, size, size);
 		faceCtx.imageSmoothingEnabled = true;
 		faceCtx.imageSmoothingQuality = "high";
 		const aligned =
 			landmarks != null && landmarks.length >= 2
-				? faceAlignTransform(landmarks, bitmap.width, bitmap.height)
+				? faceAlignTransform(landmarks, bitmap.width, bitmap.height, size)
 				: null;
 		if (aligned != null) {
 			// Eye-aligned similarity transform over the whole bitmap; only the
-			// face region lands inside the 112² viewport.
+			// face region lands inside the size² viewport.
 			faceCtx.setTransform(aligned.a, aligned.b, aligned.c, aligned.d, aligned.e, aligned.f);
 			faceCtx.drawImage(bitmap, 0, 0);
 			faceCtx.setTransform(1, 0, 0, 1, 0, 0);
 		} else {
 			const rect = faceCropRect(box, bitmap.width, bitmap.height);
 			if (rect == null || rect.w < FACE_MIN_PX || rect.h < FACE_MIN_PX) return null;
-			faceCtx.drawImage(
-				bitmap,
-				rect.x,
-				rect.y,
-				rect.w,
-				rect.h,
-				0,
-				0,
-				FACE_INPUT_SIZE,
-				FACE_INPUT_SIZE,
-			);
+			faceCtx.drawImage(bitmap, rect.x, rect.y, rect.w, rect.h, 0, 0, size, size);
 		}
-		const { data } = faceCtx.getImageData(0, 0, FACE_INPUT_SIZE, FACE_INPUT_SIZE);
+		const { data } = faceCtx.getImageData(0, 0, size, size);
 		const inputName = faceSession.inputNames[0];
 		if (inputName == null) return null;
-		const tensor = new ort.Tensor("float32", faceRgbaToTensor(data), [
-			1,
-			3,
-			FACE_INPUT_SIZE,
-			FACE_INPUT_SIZE,
-		]);
+		const tensor = new ort.Tensor("float32", faceRgbaToTensor(data, size), [1, 3, size, size]);
 		let outputs: Record<string, ort.Tensor> | undefined;
 		try {
 			outputs = await faceSession.run({ [inputName]: tensor });
@@ -480,6 +471,13 @@ scope.onmessage = (event) => {
 				faceSession = fs;
 				yunetSession = ys;
 				nsfwSession = ns;
+				if (fs != null) {
+					// inputMetadata shape is [batch, 3, H, W] with symbolic batch.
+					const meta = (fs.inputMetadata as readonly { shape?: unknown[] }[] | undefined)?.[0];
+					faceInputSize = fastfaceInputSizeFromShape(meta?.shape);
+					faceCanvas.width = faceInputSize;
+					faceCanvas.height = faceInputSize;
+				}
 				scope.postMessage({ type: "ready", backend });
 			})
 			.catch((err) => scope.postMessage({ type: "initError", error: errMsg(err) }));

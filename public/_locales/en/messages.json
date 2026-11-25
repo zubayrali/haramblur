@@ -419,5 +419,11 @@
 	},
 	"packFastfaceInt8Desc": {
 		"message": "1.5 MB quantized gender classifier — same 112px contract, smaller footprint"
+	},
+	"packFastfaceLargeInt8": {
+		"message": "FastFace large int8 (accurate)"
+	},
+	"packFastfaceLargeInt8Desc": {
+		"message": "3.8 MB quantized gender classifier — larger backbone at 128px, higher accuracy than the bundled small model"
 	}
 }

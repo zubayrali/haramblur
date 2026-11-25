@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+	FACE_INPUT_SIZE,
 	FACE_MAX_PER_PASS,
 	FACE_MIN_PX,
 	FACE_RELABEL_MIN_CONF,
 	faceAlignTransform,
 	faceCropRect,
 	faceRgbaToTensor,
+	fastfaceInputSizeFromShape,
 	genderProbs,
 	refineFaceDetections,
 } from "../../src/engine/fastface";
@@ -232,5 +234,35 @@ describe("faceAlignTransform", () => {
 		const le = apply(t, 250, 128);
 		// After alignment both eyes share the same y.
 		expect(re.y).toBeCloseTo(le.y, 3);
+	});
+});
+
+describe("fastfaceInputSizeFromShape", () => {
+	it("reads the square edge off a valid NCHW shape", () => {
+		expect(fastfaceInputSizeFromShape(["batch", 3, 112, 112])).toBe(112);
+		expect(fastfaceInputSizeFromShape(["batch", 3, 128, 128])).toBe(128);
+		expect(fastfaceInputSizeFromShape([1, 3, 160, 160])).toBe(160);
+	});
+
+	it("falls back to 112 for missing or malformed shapes", () => {
+		expect(fastfaceInputSizeFromShape(undefined)).toBe(FACE_INPUT_SIZE);
+		expect(fastfaceInputSizeFromShape([])).toBe(FACE_INPUT_SIZE);
+		expect(fastfaceInputSizeFromShape([1, 3, 112])).toBe(FACE_INPUT_SIZE);
+		expect(fastfaceInputSizeFromShape(["batch", 3, "H", "W"])).toBe(FACE_INPUT_SIZE);
+	});
+
+	it("rejects non-square and implausible sizes", () => {
+		expect(fastfaceInputSizeFromShape([1, 3, 112, 128])).toBe(FACE_INPUT_SIZE);
+		expect(fastfaceInputSizeFromShape([1, 3, 8, 8])).toBe(FACE_INPUT_SIZE);
+		expect(fastfaceInputSizeFromShape([1, 3, 1024, 1024])).toBe(FACE_INPUT_SIZE);
+	});
+});
+
+describe("faceRgbaToTensor with a non-default size", () => {
+	it("produces 3·size² values laid out channel-planar", () => {
+		const size = 128;
+		const rgba = new Uint8ClampedArray(size * size * 4).fill(255);
+		const tensor = faceRgbaToTensor(rgba, size);
+		expect(tensor.length).toBe(3 * size * size);
 	});
 });

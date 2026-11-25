@@ -419,5 +419,11 @@
 	},
 	"packFastfaceInt8Desc": {
 		"message": "مصنّف جنس مكمّم 1.5 ميغابايت — نفس عقد 112px بحجم أصغر"
+	},
+	"packFastfaceLargeInt8": {
+		"message": "FastFace large int8 (دقيق)"
+	},
+	"packFastfaceLargeInt8Desc": {
+		"message": "مصنِّف جنس مكمَّم بحجم 3.8 ميغابايت — بنية أكبر بدقة 128 بكسل، أعلى دقة من النموذج الصغير المضمَّن"
 	}
 }
