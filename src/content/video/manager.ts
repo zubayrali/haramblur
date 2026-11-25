@@ -50,12 +50,15 @@ export class VideoManager {
 	async start(): Promise<void> {
 		if (this.started) return;
 		this.started = true;
-		const [settings, detectorInputSize] = await Promise.all([
-			this.deps.getSettings(),
-			this.deps.getDetectorInputSize?.() ?? Promise.resolve(null),
-		]);
-		if (detectorInputSize != null) this.detectorInputSize = detectorInputSize;
-		this.settings = settings;
+		this.settings = await this.deps.getSettings();
+		// Detector input arrives asynchronously — engine boot can take seconds
+		// on WASM, and blocking the whole content pipeline on it starves image
+		// classification (DP3 regression found in CI). Early frames use the 480
+		// default, which matches the GPU detector anyway; the cap corrects itself
+		// before sustained sampling begins.
+		void this.deps.getDetectorInputSize?.().then((size) => {
+			if (size != null) this.detectorInputSize = size;
+		});
 		this.unwatch = this.deps.watchSettings((next) => this.applySettings(next));
 	}
 
