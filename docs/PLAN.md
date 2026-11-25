@@ -72,6 +72,7 @@ Input: detections + settings. Output: `blur` or `clear`. Settings map to per-cla
 -   `strictModesty` (default off) → `MODESTY_LABELS`: belly/armpits/feet covered classes — high false-positive rate on clothed photos, so opt-in.
 -   `skipChildren` → `FACE_*` detections with `age < 15` don't blur on their own (never suppresses `CORE_EXPOSED_LABELS`).
 -   `NSFW_EXPLICIT`/`NSFW_SUGGESTIVE` always blur regardless of gender toggles; threshold lerps with `strictness`.
+-   Per-class threshold curves (DP4): each blur-capable label has `{max, min, pow}` with `threshold = max − (max−min)·strictness^pow`. Genitalia/noisy-exposed use pow 2–3 so mid-strictness precision is preserved (dev-split negatives cluster at 0.36–0.52) while strictness 1 drops toward ~0.1–0.15 (upstream parity); the mapping is continuous, so existing strictness values need no migration.
 -   Exposed nudity of any person is always blurred unless the extension is off for the site.
 
 ## Repository layout

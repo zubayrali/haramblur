@@ -286,6 +286,7 @@ async function main(): Promise<void> {
 	const detectorInput =
 		arg("--detector-input") == null ? undefined : Number(arg("--detector-input"));
 	const nudenetOverride = arg("--nudenet-override");
+	const strictness = arg("--strictness") == null ? undefined : Number(arg("--strictness"));
 	if (detectorInput != null && (!Number.isInteger(detectorInput) || detectorInput % 32 !== 0)) {
 		throw new Error(`invalid --detector-input "${detectorInput}"`);
 	}
@@ -311,18 +312,25 @@ async function main(): Promise<void> {
 		const extensionId = new URL(worker.url()).host;
 		const page = await context.newPage();
 		await page.goto(`chrome-extension://${extensionId}/popup.html`);
-		if (coverageMode != null) {
+		if (coverageMode != null || strictness != null) {
 			await page.evaluate(
-				(mode) =>
+				([mode, strictnessOverride]) =>
 					new Promise<void>((resolve) =>
 						chrome.storage.sync.get("hb-settings", (all) => {
 							const current = (all["hb-settings"] ?? {}) as Record<string, unknown>;
-							chrome.storage.sync.set({ "hb-settings": { ...current, coverageMode: mode } }, () =>
-								resolve(),
+							chrome.storage.sync.set(
+								{
+									"hb-settings": {
+										...current,
+										...(mode == null ? {} : { coverageMode: mode }),
+										...(strictnessOverride == null ? {} : { strictness: strictnessOverride }),
+									},
+								},
+								() => resolve(),
 							);
 						}),
 					),
-				coverageMode,
+				[coverageMode, strictness],
 			);
 		}
 
