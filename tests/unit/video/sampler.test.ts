@@ -2,13 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { createActor } from "xstate";
 import {
 	applyVerdict,
-	BASE_FPS,
-	BOOST_FPS,
 	HYSTERESIS_WINDOW,
 	isHighConfidence,
+	MAX_FPS,
+	MIN_FPS,
 	type SamplerContext,
 	type SamplerEvent,
-	STABLE_FPS,
 	samplerMachine,
 	VideoSampler,
 } from "../../../src/content/video/sampler";
@@ -254,7 +253,7 @@ describe("VideoSampler pause rules", () => {
 	});
 });
 
-describe("adaptive rate", () => {
+describe("continuous adaptive loop", () => {
 	const setup = () => {
 		const h = makeHarness();
 		const video = new FakeVideo();
@@ -268,7 +267,7 @@ describe("adaptive rate", () => {
 		return { h, video, sampler };
 	};
 
-	const sampleOnce = async (h: ReturnType<typeof makeHarness>, video: FakeVideo, stepMs = 500) => {
+	const pumpChain = async (h: ReturnType<typeof makeHarness>, video: FakeVideo, stepMs = 120) => {
 		h.advance(stepMs);
 		video.currentTime += stepMs / 1000;
 		h.pumpFrames();
@@ -277,23 +276,97 @@ describe("adaptive rate", () => {
 		await Promise.resolve();
 	};
 
-	it("baseline rate is 2 fps", async () => {
+	it("full rate is capped at 10 fps", () => {
 		const { sampler } = setup();
-		expect(sampler.currentRateFps).toBe(BASE_FPS);
+		expect(sampler.currentRateFps).toBe(MAX_FPS);
 	});
 
-	it("boosts to 6 fps after a scene change", async () => {
+	it("backs off exponentially toward 1 fps for a static clear scene", async () => {
 		const { h, video, sampler } = setup();
-		await sampleOnce(h, video);
-		// Force a big pixel diff: new frames filled with opposite luma.
+		h.setFill(() => 0);
+		await pumpChain(h, video);
+		const firstRate = sampler.currentRateFps;
+		for (let i = 0; i < 6; i++) await pumpChain(h, video, 1000);
+		expect(firstRate).toBe(MAX_FPS);
+		expect(sampler.currentRateFps).toBe(MIN_FPS);
+	});
+
+	it("a scene change resets backoff to full rate", async () => {
+		const { h, video, sampler } = setup();
+		h.setFill(() => 0);
+		await pumpChain(h, video);
+		for (let i = 0; i < 4; i++) await pumpChain(h, video, 1000);
+		expect(sampler.currentRateFps).toBeLessThan(MAX_FPS);
 		h.setFill(() => 250);
-		await sampleOnce(h, video);
-		expect(sampler.currentRateFps).toBe(BOOST_FPS);
+		await pumpChain(h, video, 1000);
+		expect(sampler.currentRateFps).toBe(MAX_FPS);
 	});
 
-	it("backs off to 1 fps when verdicts are stable", async () => {
+	it("re-detects at least 6 fps during motion when inference latency allows it", async () => {
 		const { h, video, sampler } = setup();
-		for (let i = 0; i < 8; i++) await sampleOnce(h, video);
-		expect(sampler.currentRateFps).toBe(STABLE_FPS);
+		h.classifyFrame.mockImplementation(async () => {
+			h.advance(150);
+			return verdict("clear");
+		});
+		const start = h.now();
+		for (let i = 0; i < 6; i++) {
+			video.currentTime += 0.15;
+			h.pumpFrames();
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+		}
+		const elapsedSeconds = (h.now() - start) / 1000;
+		expect(h.classifyFrame.mock.calls.length / elapsedSeconds).toBeGreaterThanOrEqual(6);
+		expect(sampler.state).toBe("sampling");
+	});
+
+	it("a seek resets backoff even when the pixels are unchanged", async () => {
+		const { h, video, sampler } = setup();
+		h.setFill(() => 0);
+		await pumpChain(h, video, 1000);
+		for (let i = 0; i < 4; i++) await pumpChain(h, video, 1000);
+		expect(sampler.currentRateFps).toBeLessThan(MAX_FPS);
+		video.currentTime += 3;
+		await pumpChain(h, video, 1000);
+		expect(sampler.currentRateFps).toBe(MAX_FPS);
+	});
+
+	it("a blur verdict resets static-scene backoff to full rate", async () => {
+		const { h, video, sampler } = setup();
+		let fillByte = 0;
+		h.setFill(() => fillByte);
+		await pumpChain(h, video, 1000);
+		fillByte = 1; // sub-motion-threshold encoder noise: backoff may continue
+		for (let i = 0; i < 4; i++) await pumpChain(h, video, 1000);
+		expect(sampler.currentRateFps).toBeLessThan(MAX_FPS);
+		fillByte = 2; // another sub-motion change so the frame is classified, not skipped
+		h.classifyFrame.mockResolvedValueOnce(verdict("blur", 0.95, 1, "FEMALE_BREAST_EXPOSED"));
+		await pumpChain(h, video, 1000);
+		expect(sampler.currentRateFps).toBe(MAX_FPS);
+	});
+
+	it("enforces the 10 fps ceiling even when inference is immediate", async () => {
+		const { h, video } = setup();
+		for (let i = 0; i < 10; i++) {
+			h.advance(50);
+			video.currentTime += 0.05;
+			h.pumpFrames();
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+		}
+		// Ten 50 ms wakeups span 500 ms; the 100 ms ceiling permits roughly five
+		// captures (allowing one boundary frame), not ten.
+		expect(h.classifyFrame.mock.calls.length).toBeLessThanOrEqual(6);
+	});
+
+	it("completion of one classify chain schedules the next capture without queueing", async () => {
+		const { h, video, sampler } = setup();
+		await pumpChain(h, video);
+		expect(h.classifyFrame).toHaveBeenCalledTimes(1);
+		await pumpChain(h, video);
+		expect(h.classifyFrame).toHaveBeenCalledTimes(2);
+		expect(sampler.state).toBe("sampling");
 	});
 });

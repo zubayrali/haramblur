@@ -27,7 +27,8 @@
 		"bench": "tsx scripts/bench-engine.ts",
 		"probe:webgpu": "tsx scripts/probe-webgpu.ts",
 		"eval": "tsx scripts/eval.ts",
-		"models:fetch": "tsx scripts/fetch-models.ts"
+		"models:fetch": "tsx scripts/fetch-models.ts",
+		"measure:video": "tsx scripts/measure-video-cadence.ts"
 	},
 	"dependencies": {
 		"@webext-core/messaging": "^4.0.2",
