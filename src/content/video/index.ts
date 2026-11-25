@@ -20,15 +20,16 @@ export type {
 } from "./sampler";
 export {
 	applyVerdict,
-	BASE_FPS,
-	BOOST_FPS,
-	BOOST_MS,
 	HIGH_CONFIDENCE_SCORE,
 	HYSTERESIS_WINDOW,
 	isHighConfidence,
+	MAX_FPS,
+	MAX_SAMPLE_INTERVAL_MS,
+	MIN_FPS,
+	MIN_SAMPLE_INTERVAL_MS,
+	MOTION_DISTANCE,
 	SCENE_CHANGE_DISTANCE,
-	STABLE_AFTER,
-	STABLE_FPS,
+	SEEK_JUMP_SECONDS,
 	samplerMachine,
 	VideoSampler,
 } from "./sampler";

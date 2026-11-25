@@ -9,17 +9,22 @@ import {
 	type VideoSamplerDeps,
 } from "./types";
 
-// --- Adaptive rate (docs/PLAN.md: "default 2 fps, up to 6 fps after a scene
-// change; pause while hidden, paused or off-screen") ---
+// --- Continuous one-in-flight rate control (docs/DETECTION_PARITY.md DP2).
+// Inference latency is the natural limiter; the constants below are only the
+// power ceiling, static-scene backoff floor, and motion/seek reset inputs. ---
 
-export const BASE_FPS = 2;
-export const BOOST_FPS = 6;
-export const BOOST_MS = 5_000;
-/** Once verdicts have agreed this many times in a row, drop to STABLE_FPS. */
-export const STABLE_AFTER = 6;
-export const STABLE_FPS = 1;
+/** Hard power/thermal ceiling: even fast inference may not sample faster than this. */
+export const MAX_FPS = 10;
+export const MIN_SAMPLE_INTERVAL_MS = 1000 / MAX_FPS;
+/** Exponential backoff floor for a static, repeatedly clear scene. */
+export const MIN_FPS = 1;
+export const MAX_SAMPLE_INTERVAL_MS = 1000 / MIN_FPS;
 /** Normalized luma-hash distance above which a frame counts as a scene change. */
 export const SCENE_CHANGE_DISTANCE = 0.3;
+/** Small-but-real motion resets backoff; encoder noise below this does not. */
+export const MOTION_DISTANCE = SCENE_CHANGE_DISTANCE / 10;
+/** currentTime jump/backjump treated as a seek; seeks reset to full rate. */
+export const SEEK_JUMP_SECONDS = 1.5;
 
 // --- Hysteresis ---
 
@@ -194,9 +199,9 @@ export class VideoSampler {
 	private inFlight = false;
 	private lastHash: Uint8Array | null = null;
 	private lastFrameTs = -1;
-	private lastSampleAt = 0;
-	private boostUntil = 0;
-	private rateFps = BASE_FPS;
+	private lastCaptureAt = 0;
+	private sampleIntervalMs = MIN_SAMPLE_INTERVAL_MS;
+	private backoffStreak = 0;
 	private lastBlurred = false;
 	private lastState: SamplerState = "idle";
 	private started = false;
@@ -232,9 +237,9 @@ export class VideoSampler {
 		return this.state === "sampling";
 	}
 
-	/** Current adaptive sampling rate (fps) — exposed for tests/diagnostics. */
+	/** Current effective sampling rate (fps) — exposed for tests/diagnostics. */
 	get currentRateFps(): number {
-		return this.rateFps;
+		return 1000 / this.sampleIntervalMs;
 	}
 
 	start(): void {
@@ -364,10 +369,13 @@ export class VideoSampler {
 			return;
 		}
 		const now = this.env.now();
-		if (now - this.lastSampleAt >= 1000 / this.rateFps) {
+		if (now - this.lastCaptureAt >= this.sampleIntervalMs) {
 			void this.sampleOnce();
+		} else {
+			// rVFC/rAF supplies the wakeups; skipping early frames is how the
+			// 10 fps ceiling and exponential floor are enforced without a timer.
+			this.scheduleTick();
 		}
-		this.scheduleTick();
 	}
 
 	private async sampleOnce(): Promise<void> {
@@ -377,16 +385,20 @@ export class VideoSampler {
 			const frame = await captureFrame(this.video, this.env);
 			const now = this.env.now();
 			if (!frame) return;
+			const hadPriorFrame = this.lastHash !== null;
 			// First frame has nothing to compare against → not a scene change.
-			const dist = this.lastHash ? hashDistance(frame.hash, this.lastHash) : 0;
+			const dist = hadPriorFrame ? hashDistance(frame.hash, this.lastHash!) : 0;
+			const seek =
+				hadPriorFrame &&
+				(frame.ts < this.lastFrameTs || frame.ts - this.lastFrameTs > SEEK_JUMP_SECONDS);
 			// Skip duplicate frames: frozen stream (currentTime unchanged) or a
 			// pixel-identical frame — but never skip the very first capture.
-			const duplicate = this.lastHash !== null && (frame.ts === this.lastFrameTs || dist === 0);
+			const duplicate = hadPriorFrame && (frame.ts === this.lastFrameTs || dist === 0);
 			this.lastHash = frame.hash;
 			this.lastFrameTs = frame.ts;
-			this.lastSampleAt = now;
+			this.lastCaptureAt = now;
 			if (duplicate) {
-				this.updateRate(dist);
+				this.updateRate(dist, null, hadPriorFrame, seek);
 				return;
 			}
 			const verdict = await this.deps.classifyFrame({
@@ -396,26 +408,42 @@ export class VideoSampler {
 			});
 			this.actor.send({ type: "VERDICT", verdict });
 			this.deps.onVerdict?.(this.video, verdict);
-			this.updateRate(dist);
+			this.updateRate(dist, verdict, hadPriorFrame, seek);
 		} catch (err) {
+			this.increaseBackoff();
 			this.deps.onError?.(this.video, err);
 		} finally {
 			this.inFlight = false;
+			// Continuous one-in-flight loop: completion of this capture/classify
+			// chain is the only thing that schedules the next capture.
+			if (this.state === "sampling") this.scheduleTick();
 		}
 	}
 
-	private updateRate(dist: number): void {
-		const now = this.env.now();
-		const streak = this.actor.getSnapshot().context.stableStreak;
-		if (dist > SCENE_CHANGE_DISTANCE) {
-			this.boostUntil = now + BOOST_MS;
-			this.rateFps = BOOST_FPS;
-		} else if (now < this.boostUntil) {
-			this.rateFps = BOOST_FPS;
-		} else if (streak >= STABLE_AFTER) {
-			this.rateFps = STABLE_FPS;
-		} else {
-			this.rateFps = BASE_FPS;
+	private resetBackoff(): void {
+		this.backoffStreak = 0;
+		this.sampleIntervalMs = MIN_SAMPLE_INTERVAL_MS;
+	}
+
+	private increaseBackoff(): void {
+		this.backoffStreak++;
+		this.sampleIntervalMs = Math.min(
+			MAX_SAMPLE_INTERVAL_MS,
+			MIN_SAMPLE_INTERVAL_MS * 2 ** this.backoffStreak,
+		);
+	}
+
+	private updateRate(
+		dist: number,
+		verdict: Verdict | null,
+		hadPriorFrame: boolean,
+		seek: boolean,
+	): void {
+		if (seek || dist >= MOTION_DISTANCE || verdict?.decision === "blur") {
+			this.resetBackoff();
+			return;
 		}
+		const clear = verdict?.decision === "clear" || this.lastVerdict?.decision === "clear";
+		if (hadPriorFrame && dist < MOTION_DISTANCE && clear) this.increaseBackoff();
 	}
 }

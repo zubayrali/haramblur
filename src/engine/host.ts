@@ -28,8 +28,8 @@ export const INFER_TIMEOUT_MS = 30_000;
 export const FETCH_TIMEOUT_MS = 15_000;
 export const VERDICT_CACHE_CAP = 500;
 /** Minimum time between person segmentation passes on one media element.
- * Bounded worst-case cost: at the 2 fps sampling cadence at most every third
- * frame carries a pass, and only when the faces actually moved. */
+ * Bounded worst-case cost: even at the 10 fps continuous sampler ceiling at
+ * most one frame in nine carries a pass, and only when the faces actually moved. */
 export const PERSON_PASS_INTERVAL_MS = 1500;
 
 /** The slice of the Worker interface the host needs (injectable for tests). */
@@ -100,7 +100,7 @@ async function fetchBitmap(url: string): Promise<ImageBitmap> {
 /**
  * Minimum face-box IoU for a prior frame's silhouette mask to carry onto the
  * current frame's matching FACE_FEMALE detection. Faces move little between
- * frames at the 1–2 fps sampling cadence; faster motion changes the quantized
+ * frames at the continuous sampling cadence; faster motion changes the quantized
  * female-verdict key, which grants a fresh segmentation pass anyway.
  */
 export const MASK_CARRY_MIN_IOU = 0.2;

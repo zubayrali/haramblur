@@ -28,8 +28,10 @@ sources, and `<iframe>` contents; an IntersectionObserver promotes visible
 media to the front of the classification queue. Element state is carried in
 `data-hb-*` attributes (`kind`, `state`, `blur`, `reasons`, `reveal`) so
 thousand-image feeds stay cheap. The video sampler (`requestVideoFrameCallback`,
-rAF fallback) draws downscaled ≤320 px JPEG frames at an adaptive rate and
-pauses for hidden, paused, or off-screen videos.
+rAF fallback) draws downscaled ≤480 px WebP frames and
+pauses for hidden, paused, or off-screen videos. Sampling is a continuous
+one-in-flight loop with a 10 fps ceiling and exponential backoff toward 1 fps
+for static clear scenes.
 
 ## Background (`src/entrypoints/background.ts`)
 
