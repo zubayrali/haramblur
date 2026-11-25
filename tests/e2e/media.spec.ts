@@ -367,7 +367,11 @@ test("X.com paired media: invisible img skipped, bg div region-blurred", async (
 		const ext = await context.newPage();
 		await ext.goto(`chrome-extension://${extensionId}/popup.html`);
 		// revealModeImages "hover" enables hover reveal for the region portal.
-		await writeSettings(ext, { revealModeImages: "hover", strictness: 1 });
+		// coverageMode "face" keeps this in region mode: under the default body
+		// coverage a portrait face expands past escalateAreaPct and smartCensor
+		// deliberately whole-blurs (region.test.ts documents that policy). This
+		// test exercises portal mechanics, not escalation.
+		await writeSettings(ext, { revealModeImages: "hover", strictness: 1, coverageMode: "face" });
 
 		const page = await context.newPage();
 		await page.goto(`${url}/x`);
@@ -504,7 +508,9 @@ test("shadow DOM media: discovery, adopted styles, region portal, late mutations
 	try {
 		const ext = await context.newPage();
 		await ext.goto(`chrome-extension://${extensionId}/popup.html`);
-		await writeSettings(ext, { strictness: 1 });
+		// coverageMode "face" — same reasoning as the X.com test above: portal
+		// mechanics need region mode, body coverage would escalate to whole.
+		await writeSettings(ext, { strictness: 1, coverageMode: "face" });
 
 		const page = await context.newPage();
 		await page.goto(`${url}/shadow`);
