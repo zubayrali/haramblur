@@ -32,28 +32,11 @@ export const NSFW_THRESHOLD_MAX = 0.4;
 export const NSFW_THRESHOLD_MIN = 0.15;
 
 /**
- * Absolute score floor for the genitalia classes. NudeNet fires
- * `*_GENITALIA_EXPOSED` on animals and artwork at ~0.5; real positives score
- * higher. Also applied to modesty labels, which are noisy by nature.
+ * Reference precision floor for the noisiest classes — the strictness-0.5
+ * operating point of the genitalia/modesty curves stays at or above it so
+ * default behavior does not regress (dev-split negatives cluster at 0.36–0.52).
  */
 export const LABEL_SCORE_FLOOR = 0.55;
-const FLOOR_LABELS: ReadonlySet<string> = new Set([
-	"FEMALE_GENITALIA_EXPOSED",
-	"MALE_GENITALIA_EXPOSED",
-]);
-
-/**
- * Breast/buttocks/anus classes fire on skin-tone textures — folded lapels,
- * hands, chins — at ~0.3–0.45 (observed live on YouTube thumbnails). They
- * require a margin above the exposed threshold rather than a flat floor, so
- * `strictness` still scales them at both ends.
- */
-const NOISY_EXPOSED_MARGIN = 0.2;
-const NOISY_EXPOSED_LABELS: ReadonlySet<string> = new Set([
-	"FEMALE_BREAST_EXPOSED",
-	"BUTTOCKS_EXPOSED",
-	"ANUS_EXPOSED",
-]);
 
 /**
  * Male-context suppression: a confident `FACE_MALE` makes a low-confidence
@@ -89,6 +72,56 @@ function effectiveDetections(detections: readonly Detection[]): readonly Detecti
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
+
+/**
+ * Per-class strictness curve (DP4). `threshold = max − (max−min)·strictness^pow`.
+ * `pow > 1` keeps thresholds high through the mid-range and drops them steeply
+ * near strictness 1 — the shape the dev-split score distributions demand:
+ * genitalia/breast false positives cluster at 0.36–0.52, so mid-strictness
+ * must protect precision, while real positives exist as low as 0.17 and only
+ * a high-strictness floor near upstream's ~0.1 can recall them.
+ */
+export interface ThresholdCurve {
+	/** Threshold at strictness 0 (precision end). */
+	max: number;
+	/** Threshold at strictness 1 (sensitivity end, upstream parity ~0.1). */
+	min: number;
+	/** Curve exponent; 1 = linear, 2 = steep drop at the sensitive end. */
+	pow: number;
+}
+
+export function curveThreshold(curve: ThresholdCurve, strictness: number): number {
+	return curve.max - (curve.max - curve.min) * clamp01(strictness) ** curve.pow;
+}
+
+const FACE_CURVE: ThresholdCurve = { max: 0.6, min: 0.2, pow: 1 };
+const NSFW_CURVE: ThresholdCurve = { max: 0.4, min: 0.15, pow: 1 };
+/** Genitalia: dev positives at 0.17/0.45 (F) and 0.70 (M); negatives cluster
+ * at 0.36–0.52. pow 3 keeps the default (0.5) floor at 0.58 ≈ the old hard
+ * floor's effect (0.55), while strictness 1 reaches 0.12 and recalls the 0.17 positive. */
+const GENITALIA_CURVE: ThresholdCurve = { max: 0.65, min: 0.12, pow: 3 };
+/** Breast/buttocks/anus: skin-texture negatives up to ~0.44, but a real breast
+ * positive at 0.29. Replaces the old flat `+0.2` margin — nearly identical at
+ * default strictness (0.45 vs 0.475), much more sensitive at the strict end. */
+const NOISY_EXPOSED_CURVE: ThresholdCurve = { max: 0.6, min: 0.15, pow: 2 };
+/** Modesty classes are the noisiest (negatives to 0.81) — even the sensitive
+ * end stays conservative, and `strictModesty` still gates them entirely. */
+const MODESTY_CURVE: ThresholdCurve = { max: 0.6, min: 0.35, pow: 1.5 };
+
+/** Per-label curve table — the single source of truth for strictness scaling. */
+export const THRESHOLD_CURVES: Readonly<Partial<Record<DetectionLabel, ThresholdCurve>>> = {
+	FEMALE_GENITALIA_EXPOSED: GENITALIA_CURVE,
+	MALE_GENITALIA_EXPOSED: GENITALIA_CURVE,
+	FEMALE_BREAST_EXPOSED: NOISY_EXPOSED_CURVE,
+	BUTTOCKS_EXPOSED: NOISY_EXPOSED_CURVE,
+	ANUS_EXPOSED: NOISY_EXPOSED_CURVE,
+	FEET_EXPOSED: MODESTY_CURVE,
+	BELLY_EXPOSED: MODESTY_CURVE,
+	ARMPITS_EXPOSED: MODESTY_CURVE,
+	MALE_BREAST_EXPOSED: MODESTY_CURVE,
+	NSFW_EXPLICIT: NSFW_CURVE,
+	NSFW_SUGGESTIVE: NSFW_CURVE,
+};
 
 /** Faces estimated younger than this are skipped when `skipChildren` is on. */
 export const CHILD_AGE_MAX = 15;
@@ -133,17 +166,17 @@ export function nsfwThreshold(strictness: number): number {
 export function blurThresholdFor(label: DetectionLabel, settings: PolicySettings): number | null {
 	if (NSFW_LABEL_SET.has(label)) return nsfwThreshold(settings.strictness);
 	if (LABEL_GROUPS.coreExposed.has(label)) {
-		if (FLOOR_LABELS.has(label)) {
-			return Math.max(exposedThreshold(settings.strictness), LABEL_SCORE_FLOOR);
-		}
-		if (NOISY_EXPOSED_LABELS.has(label)) {
-			return Math.min(1, exposedThreshold(settings.strictness) + NOISY_EXPOSED_MARGIN);
-		}
-		return exposedThreshold(settings.strictness);
+		const curve = THRESHOLD_CURVES[label];
+		return curve != null
+			? curveThreshold(curve, settings.strictness)
+			: exposedThreshold(settings.strictness);
 	}
 	if (LABEL_GROUPS.modesty.has(label)) {
 		if (!settings.strictModesty) return null;
-		return Math.max(faceThreshold(settings.strictness), LABEL_SCORE_FLOOR);
+		const curve = THRESHOLD_CURVES[label];
+		return curve != null
+			? curveThreshold(curve, settings.strictness)
+			: Math.max(faceThreshold(settings.strictness), LABEL_SCORE_FLOOR);
 	}
 	if (LABEL_GROUPS.female.has(label)) {
 		return settings.blurFemale ? faceThreshold(settings.strictness) : null;

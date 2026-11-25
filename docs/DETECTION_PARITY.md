@@ -193,6 +193,14 @@ Acceptance: precision/recall table per strictness level on the dev split; no
 regression at default strictness (G3); user validates sensitivity feel on
 live sites.
 
+DP4 implementation note (2026-11-25): per-class `{max, min, pow}` curves in
+`policy.ts` replaced the flat genitalia floor and noisy-exposed margin. Curves
+were derived from dev-split detection-score distributions mined from the DP3
+eval runs. At default strictness the table is regression-neutral (94.1%
+accuracy, 100% precision, 88.9% recall — identical at strictness 0 and 0.5);
+at strictness 1 recall reaches 100% (the `woman-elderly-gambian` miss is
+recalled) with the documented false-blur tradeoff on negatives.
+
 ### DP5 — Validation, then masks
 
 1. Full acceptance pass: G1–G5, plus the v1 acceptance items this touches

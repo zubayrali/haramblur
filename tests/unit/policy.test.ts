@@ -57,11 +57,15 @@ describe("decide", () => {
 		expect(decide([det("BUTTOCKS_EXPOSED", 0.5)], base)).toBe("blur");
 	});
 
-	it("applies an absolute floor to genitalia classes", () => {
-		// Cat-photo FP territory: below the floor → clear, above → blur.
-		expect(decide([det("MALE_GENITALIA_EXPOSED", LABEL_SCORE_FLOOR - 0.01)], base)).toBe("clear");
-		expect(decide([det("MALE_GENITALIA_EXPOSED", LABEL_SCORE_FLOOR + 0.01)], base)).toBe("blur");
-		expect(decide([det("FEMALE_GENITALIA_EXPOSED", LABEL_SCORE_FLOOR - 0.01)], base)).toBe("clear");
+	it("keeps genitalia precision at default strictness and opens up at strictness 1", () => {
+		// Default (0.5): curve floor ≈0.58 — cat-photo FP territory stays clear.
+		expect(decide([det("MALE_GENITALIA_EXPOSED", 0.52)], base)).toBe("clear");
+		expect(decide([det("MALE_GENITALIA_EXPOSED", 0.7)], base)).toBe("blur");
+		// Strictness 1: floor drops toward upstream's ~0.1 — the dev-split 0.17
+		// positive is recalled; mid-confidence FPs are the accepted tradeoff.
+		const strict = { ...base, strictness: 1 };
+		expect(blurThresholdFor("FEMALE_GENITALIA_EXPOSED", strict)).toBeCloseTo(0.12);
+		expect(decide([det("FEMALE_GENITALIA_EXPOSED", 0.17)], strict)).toBe("blur");
 	});
 
 	it("requires a noise margin for breast/buttocks/anus classes", () => {
@@ -88,10 +92,12 @@ describe("decide", () => {
 		}
 	});
 
-	it("floors modesty labels even when strictModesty is on", () => {
+	it("scales modesty labels with strictness when strictModesty is on", () => {
 		const s = { ...base, strictModesty: true };
-		expect(decide([det("FEET_EXPOSED", LABEL_SCORE_FLOOR - 0.01)], s)).toBe("clear");
-		expect(decide([det("FEET_EXPOSED", LABEL_SCORE_FLOOR + 0.01)], s)).toBe("blur");
+		// Default strictness: curve sits at ≈0.51 — low-confidence noise stays clear.
+		expect(decide([det("FEET_EXPOSED", 0.44)], s)).toBe("clear");
+		expect(decide([det("FEET_EXPOSED", 0.6)], s)).toBe("blur");
+		expect(decide([det("FEET_EXPOSED", 0.44)], { ...s, strictness: 1 })).toBe("blur");
 	});
 
 	it("never blurs covered, non-gendered labels on their own", () => {
@@ -112,15 +118,18 @@ describe("decide", () => {
 		expect(decide(dets, { ...base, blurFemale: false })).toBe("clear");
 	});
 
-	it("exposed classes sit at or above the face bar once margins apply", () => {
-		// strictness 0: face 0.6; noisy exposed = 0.4 + 0.2 margin = 0.6.
-		const s = { ...base, strictness: 0 };
+	it("noisy exposed classes match the face bar at strictness 0 and drop below it at strictness 1", () => {
+		const lenient = { ...base, strictness: 0 };
 		expect(faceThreshold(0)).toBeCloseTo(0.6);
-		expect(exposedThreshold(0)).toBeCloseTo(0.4);
-		expect(blurThresholdFor("BUTTOCKS_EXPOSED", s)).toBeCloseTo(0.6);
-		expect(decide([det("FACE_FEMALE", 0.5)], s)).toBe("clear");
-		expect(decide([det("BUTTOCKS_EXPOSED", 0.55)], s)).toBe("clear");
-		expect(decide([det("BUTTOCKS_EXPOSED", 0.65)], s)).toBe("blur");
+		expect(blurThresholdFor("BUTTOCKS_EXPOSED", lenient)).toBeCloseTo(0.6);
+		expect(decide([det("BUTTOCKS_EXPOSED", 0.55)], lenient)).toBe("clear");
+		expect(decide([det("BUTTOCKS_EXPOSED", 0.65)], lenient)).toBe("blur");
+		// Strict end: 0.15 — the dev-split 0.29 breast positive is recalled.
+		const strict = { ...base, strictness: 1 };
+		expect(blurThresholdFor("FEMALE_BREAST_EXPOSED", strict)).toBeCloseTo(0.15);
+		expect(decide([det("FEMALE_BREAST_EXPOSED", 0.29)], strict)).toBe("blur");
+		// Default strictness stays at ≈0.49 so the 0.3–0.45 skin-texture FPs stay clear.
+		expect(decide([det("FEMALE_BREAST_EXPOSED", 0.45)], base)).toBe("clear");
 	});
 
 	it("higher strictness lowers face thresholds via lerp(0.6, 0.2, s)", () => {
