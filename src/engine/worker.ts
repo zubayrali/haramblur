@@ -6,6 +6,7 @@
  */
 import * as ort from "onnxruntime-web";
 import { bytesToBase64, packAlphaBits } from "../shared/mask";
+import type { ModelSlot } from "../shared/model-slots";
 import { decide } from "../shared/policy";
 import type { Detection, EngineBackend } from "../shared/protocol";
 import type { Settings } from "../shared/settings";
@@ -72,6 +73,8 @@ export interface WorkerInitMessage {
 	nsfwModelUrl?: string;
 	/** Optional YOLOv8 person segmentation model; absent → heuristic body boxes. */
 	personModelUrl?: string;
+	/** FP32 person-segmentation fallback when adapter shader-f16 is absent. */
+	personModelFp32Url?: string;
 }
 
 export interface WorkerInferMessage {
@@ -108,7 +111,7 @@ export interface WorkerWebgpuProbeMessage {
 export type WorkerInMessage = WorkerInitMessage | WorkerInferMessage | WorkerWebgpuProbeMessage;
 
 export type WorkerOutMessage =
-	| { type: "ready"; backend: EngineBackend }
+	| { type: "ready"; backend: EngineBackend; backends?: Partial<Record<ModelSlot, EngineBackend>> }
 	| { type: "initError"; error: string }
 	| { type: "result"; id: number; detections: Detection[]; ms: number }
 	| { type: "inferError"; id: number; error: string }
@@ -647,12 +650,14 @@ scope.onmessage = (event) => {
 					yunetModelUrl: msg.yunetModelUrl,
 					nsfwModelUrl: msg.nsfwModelUrl,
 					personModelUrl: msg.personModelUrl,
+					personModelFp32Url: msg.personModelFp32Url,
 					modelOverrides,
 				}),
 			)
 			.then(
 				({
 					backend,
+					backends,
 					session: s,
 					faceSession: fs,
 					yunetSession: ys,
@@ -677,7 +682,7 @@ scope.onmessage = (event) => {
 						faceCanvas.width = faceInputSize;
 						faceCanvas.height = faceInputSize;
 					}
-					scope.postMessage({ type: "ready", backend });
+					scope.postMessage({ type: "ready", backend, backends });
 				},
 			)
 			.catch((err) => scope.postMessage({ type: "initError", error: errMsg(err) }));

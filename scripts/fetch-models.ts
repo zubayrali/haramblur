@@ -65,6 +65,13 @@ const MODELS: readonly ModelFile[] = [
 		sha256: "1cf75ffa2b888820d3dafd99483afd7447d7391a6e82035a27431b83d1923dce",
 		size: 7_000_692,
 	},
+	{
+		// FP32 counterpart kept for adapters without WebGPU shader-f16 support.
+		url: "https://huggingface.co/EdgeFirst/yolov8-seg/resolve/main/onnx/yolov8n-seg-fp32.onnx",
+		fileName: "yolov8n-seg-fp32.onnx",
+		sha256: "5348731f77e8d9352ce810d70a2eae60a6d5e63058e4662ec1d308cbcc2a2c25",
+		size: 13_893_339,
+	},
 ];
 
 async function sha256OfFile(path: string): Promise<string> {
