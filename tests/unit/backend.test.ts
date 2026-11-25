@@ -87,6 +87,24 @@ describe("createSession backend selection", () => {
 		expect(nudenetCalls.map((call) => call[1].executionProviders[0])).toEqual(["webgpu", "wasm"]);
 	});
 
+	it("rejects a WebGPU adapter whose steady-state probe exceeds the budget", async () => {
+		stubGpu(true);
+		createMock.mockImplementation(async () => fakeSession());
+		// Fake sessions resolve instantly, so simulate a software adapter by
+		// advancing the clock 200ms during the timed (second) probe run.
+		const realNow = performance.now.bind(performance);
+		let calls = 0;
+		vi.spyOn(performance, "now").mockImplementation(() => {
+			calls++;
+			// Every probe pair has two clock reads; make the measured gap 200ms.
+			return realNow() + (calls % 2 === 0 ? 200 : 0);
+		});
+		const loaded = await createSession(urls);
+		expect(loaded.backends.nudenet).toBe("wasm");
+		expect(loaded.backends.fastface).toBe("wasm");
+		vi.restoreAllMocks();
+	});
+
 	it("selects the fp32 person pack when shader-f16 is absent", async () => {
 		stubGpu(false);
 		createMock.mockImplementation(async () => fakeSession());

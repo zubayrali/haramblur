@@ -125,6 +125,29 @@ export async function probeSession(
 	}
 }
 
+/**
+ * Timed warm-up probe: first run absorbs shader compilation, second run is
+ * the measured steady-state execution. Returns false on probe failure.
+ */
+export async function probeSessionTimed(
+	session: ort.InferenceSession,
+	probeInputSize: number,
+): Promise<{ ok: boolean; ms: number }> {
+	if (!(await probeSession(session, probeInputSize))) return { ok: false, ms: Infinity };
+	const t0 = performance.now();
+	const ok = await probeSession(session, probeInputSize);
+	return { ok, ms: performance.now() - t0 };
+}
+
+/**
+ * Steady-state probe budget for accepting WebGPU. Real GPUs execute these
+ * warm-ups in ~5–30 ms even on weak integrated hardware; software-emulated
+ * adapters (SwiftShader in headless/CI/virtualized environments) are 10–100×
+ * slower than that — worse than the WASM fallback they displace. Measured
+ * rather than detected because adapterInfo does not reliably expose emulation.
+ */
+export const WEBGPU_PROBE_BUDGET_MS = 150;
+
 /** Minimal WebGPU surface — the TS DOM lib in use lacks GPU typings. */
 interface GpuAdapterLike {
 	features?: { has?(feature: string): boolean };
@@ -182,8 +205,12 @@ export async function createSession({
 	// five concurrent first-runs in one worker. Session creation may overlap;
 	// zero-tensor execution remains serialized.
 	let probeChain: Promise<unknown> = Promise.resolve();
-	const queuedProbe = (session: ort.InferenceSession, slot: ModelSlot) => {
-		const result = probeChain.then(() => probeSession(session, PROBE_INPUT_SIZE[slot]));
+	const queuedProbe = (session: ort.InferenceSession, slot: ModelSlot, timed: boolean) => {
+		const result = probeChain.then(() =>
+			timed
+				? probeSessionTimed(session, PROBE_INPUT_SIZE[slot])
+				: probeSession(session, PROBE_INPUT_SIZE[slot]).then((ok) => ({ ok, ms: 0 })),
+		);
 		probeChain = result.catch(() => undefined);
 		return result;
 	};
@@ -192,17 +219,22 @@ export async function createSession({
 		if (adapter != null) {
 			try {
 				const candidate = await createModel(src, ["webgpu"]);
-				if (await queuedProbe(candidate, slot)) {
+				const probe = await queuedProbe(candidate, slot, true);
+				if (probe.ok && probe.ms <= WEBGPU_PROBE_BUDGET_MS) {
 					return { session: candidate, backend: "webgpu" };
 				}
-				console.warn(`[haramblur] ${slot} WebGPU warm-up failed, falling back to WASM`);
+				console.warn(
+					probe.ok
+						? `[haramblur] ${slot} WebGPU probe too slow (${probe.ms.toFixed(0)}ms > ${WEBGPU_PROBE_BUDGET_MS}ms) — software-emulated adapter, falling back to WASM`
+						: `[haramblur] ${slot} WebGPU warm-up failed, falling back to WASM`,
+				);
 				await candidate.release().catch(() => undefined);
 			} catch (err) {
 				console.warn(`[haramblur] ${slot} WebGPU session failed, falling back to WASM:`, err);
 			}
 		}
 		const session = await createModel(src, ["wasm"]);
-		if (!(await queuedProbe(session, slot))) {
+		if (!(await queuedProbe(session, slot, false)).ok) {
 			await session.release().catch(() => undefined);
 			throw new Error(`${slot} WASM warm-up failed`);
 		}
