@@ -417,9 +417,13 @@ export async function startContentPipeline(): Promise<void> {
 		const kindEnabledFlip =
 			(prev.blurImages === false && next.blurImages === true) ||
 			(prev.blurVideos === false && next.blurVideos === true);
+		// Body coverage needs person masks that earlier face/head-mode verdicts
+		// deliberately did not spend a segmentation pass on. Restart the pipeline;
+		// the engine's person-aware cache key makes those classifications re-run.
+		const bodyCoverageEnabled = prev.coverageMode !== "body" && next.coverageMode === "body";
 		if (nowOn === wasOn) {
 			if (nowOn) {
-				if (kindEnabledFlip) {
+				if (kindEnabledFlip || bodyCoverageEnabled) {
 					stop();
 					start();
 				} else {

@@ -2,6 +2,18 @@ import { defineExtensionMessaging } from "@webext-core/messaging";
 import type { DetectionLabel } from "./labels";
 import type { Settings } from "./settings";
 
+/** Binary person-instance mask, normalized over the source media. */
+export interface PersonMask {
+	/** Source-normalized rect the mask bitmap covers (the clipped instance box). */
+	box: [x: number, y: number, w: number, h: number];
+	width: number;
+	height: number;
+	/** Base64 MSB-first bit-packed alpha, row-major (`shared/mask.ts`). */
+	bits: string;
+	/** Inside-silhouette fraction of the mask bitmap, 0..1 when known. */
+	coverage?: number;
+}
+
 /** A single model detection; `box` is normalized 0..1 over the source media. */
 export interface Detection {
 	label: DetectionLabel;
@@ -9,6 +21,8 @@ export interface Detection {
 	box: [x: number, y: number, w: number, h: number];
 	/** Estimated age in years when a face classifier provided one. */
 	age?: number;
+	/** Person silhouette associated with a FACE_FEMALE detection. */
+	mask?: PersonMask;
 }
 
 export type VerdictDecision = "blur" | "clear";

@@ -23,6 +23,7 @@ class FakeWorker implements WorkerHandle {
 			silent?: boolean;
 			detections?: Detection[];
 			detailDetections?: Detection[];
+			sequence?: Detection[][];
 			inferError?: string;
 		} = {},
 	) {}
@@ -50,7 +51,7 @@ class FakeWorker implements WorkerHandle {
 							id: msg.id,
 							detections: msg.detail
 								? (this.opts.detailDetections ?? this.opts.detections ?? [])
-								: (this.opts.detections ?? []),
+								: (this.opts.sequence?.shift() ?? this.opts.detections ?? []),
 							ms: 1,
 						},
 					} as MessageEvent);
@@ -220,6 +221,72 @@ describe("engine host", () => {
 		const { host } = makeHost({ inferError: "oom" });
 		const res = await host.run({ kind: "frame", dataUrl: "data:,", videoId: "v", ts: 0 });
 		expect(res).toEqual({ error: "oom" });
+		host.dispose();
+	});
+
+	it("grants a first person pass only in regional body-coverage mode", async () => {
+		const body = { ...DEFAULT_SETTINGS, coverageMode: "body" as const };
+		const { host, workers } = makeHost({ detections: [det("FACE_FEMALE", 0.9)] });
+		await host.run({ ...imageReq, settings: body });
+		const infers = workers[0]!.posted.filter(
+			(m): m is Extract<WorkerInMessage, { type: "infer" }> => m.type === "infer",
+		);
+		expect(infers[0]!.person).toBe(true);
+		host.dispose();
+
+		const headMode = makeHost({ detections: [det("FACE_FEMALE", 0.9)] });
+		await headMode.host.run({ ...imageReq, settings: DEFAULT_SETTINGS });
+		const headInfers = headMode.workers[0]!.posted.filter(
+			(m): m is Extract<WorkerInMessage, { type: "infer" }> => m.type === "infer",
+		);
+		expect(headInfers[0]!.person).toBe(false);
+		headMode.host.dispose();
+	});
+
+	it("re-runs a cached image when body coverage first makes person masks useful", async () => {
+		const { host, workers } = makeHost({ detections: [det("FACE_FEMALE", 0.9)] });
+		await host.run({ ...imageReq, settings: DEFAULT_SETTINGS }); // head mode: maskless cache entry
+		await host.run({
+			...imageReq,
+			settings: { ...DEFAULT_SETTINGS, coverageMode: "body" },
+		});
+		const infers = workers[0]!.posted.filter(
+			(m): m is Extract<WorkerInMessage, { type: "infer" }> => m.type === "infer",
+		);
+		expect(infers).toHaveLength(2);
+		expect(infers.map((m) => m.person === true)).toEqual([false, true]);
+		host.dispose();
+	});
+
+	it("does not repeat person passes for an unchanged video verdict key", async () => {
+		const body = { ...DEFAULT_SETTINGS, coverageMode: "body" as const };
+		const { host, workers } = makeHost({ detections: [det("FACE_FEMALE", 0.9)] });
+		const req = { kind: "frame" as const, dataUrl: "data:,", videoId: "v", ts: 0, settings: body };
+		await host.run(req);
+		await host.run({ ...req, ts: 500 });
+		await host.run({ ...req, ts: 1000 });
+		const flags = workers[0]!.posted
+			.filter((m): m is Extract<WorkerInMessage, { type: "infer" }> => m.type === "infer")
+			.map((m) => m.person === true);
+		expect(flags).toEqual([true, false, false]);
+		host.dispose();
+	});
+
+	it("grants one follow-up pass when a female verdict appears after a clear frame", async () => {
+		const body = { ...DEFAULT_SETTINGS, coverageMode: "body" as const };
+		const { host, workers } = makeHost({
+			sequence: [[], [det("FACE_FEMALE", 0.9)], [det("FACE_FEMALE", 0.9)]],
+		});
+		const req = { kind: "frame" as const, dataUrl: "data:,", videoId: "v", ts: 0, settings: body };
+		await host.run(req);
+		await host.run({ ...req, ts: 500 });
+		await host.run({ ...req, ts: 1000 });
+		const flags = workers[0]!.posted
+			.filter((m): m is Extract<WorkerInMessage, { type: "infer" }> => m.type === "infer")
+			.map((m) => m.person === true);
+		// First frame is eligible but internally gates on clear; the female verdict
+		// appears on frame two, so frame three carries the one transition pass.
+		expect(flags).toEqual([true, false, true]);
 		host.dispose();
 	});
 });

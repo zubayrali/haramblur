@@ -53,6 +53,18 @@ const MODELS: readonly ModelFile[] = [
 		sha256: "4a50ddc6126cff479c22975a39703e685088c47c0cdf7237f8e87327d5e8804e",
 		size: 2_792_212,
 	},
+	{
+		// YOLOv8n-seg FP16 (AGPL-3.0; EdgeFirst's export of the official
+		// Ultralytics COCO weights). Person instance segmentation for
+		// coverageMode:"body" silhouettes. Verified onnxruntime contract: input
+		// images [1,3,640,640] float16; outputs output0 [1,116,8400] (normalized
+		// xywh + 80 COCO classes + 32 mask coefficients) and output1
+		// [1,32,160,160] prototypes.
+		url: "https://huggingface.co/EdgeFirst/yolov8-seg/resolve/main/onnx/yolov8n-seg-fp16.onnx",
+		fileName: "yolov8n-seg-fp16.onnx",
+		sha256: "1cf75ffa2b888820d3dafd99483afd7447d7391a6e82035a27431b83d1923dce",
+		size: 7_000_692,
+	},
 ];
 
 async function sha256OfFile(path: string): Promise<string> {

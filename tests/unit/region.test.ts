@@ -17,7 +17,8 @@ import {
 	removeRegionBlur,
 	syncAllRegionBlurs,
 } from "../../src/content/region";
-import type { Detection } from "../../src/shared/protocol";
+import { bytesToBase64, packAlphaBits } from "../../src/shared/mask";
+import type { Detection, PersonMask } from "../../src/shared/protocol";
 import { DEFAULT_SETTINGS, type Settings } from "../../src/shared/settings";
 
 const SETTINGS: Settings = { ...DEFAULT_SETTINGS, regionBlur: true };
@@ -489,6 +490,113 @@ describe("background-image upgrade path", () => {
 			expect(host.style.top).toBe("20px");
 		} finally {
 			vi.stubGlobal("Image", RealImage);
+		}
+	});
+});
+
+describe("person silhouette regions", () => {
+	function makeMask(): PersonMask {
+		const rgba = new Uint8ClampedArray(4 * 4 * 4);
+		// A diamond-ish binary shape: enough to prove bits survive as a mask.
+		for (const [x, y] of [
+			[1, 0],
+			[2, 0],
+			[0, 1],
+			[1, 1],
+			[2, 1],
+			[3, 1],
+			[1, 2],
+			[2, 2],
+		] as const) {
+			rgba[(y * 4 + x) * 4 + 3] = 255;
+		}
+		return {
+			box: [0.2, 0.15, 0.45, 0.65],
+			width: 4,
+			height: 4,
+			bits: bytesToBase64(packAlphaBits(rgba, 4, 4)),
+		};
+	}
+
+	function maskedFemale(mask: PersonMask | undefined): Detection {
+		return {
+			label: "FACE_FEMALE",
+			score: 0.92,
+			box: [0.38, 0.2, 0.08, 0.1],
+			...(mask != null ? { mask } : {}),
+		};
+	}
+
+	it("planCensor replaces the body heuristic with exact mask geometry when available", () => {
+		const mask = makeMask();
+		const settings: Settings = {
+			...SETTINGS,
+			coverageMode: "body",
+			smartCensor: false,
+		};
+		const plan = planCensor([maskedFemale(mask)], "image", settings);
+		expect(plan.whole).toBe(false);
+		expect(plan.regions).toHaveLength(1);
+		expect(plan.regions[0]!.box).toEqual(mask.box);
+		expect(plan.regions[0]!.mask).toEqual(mask);
+		expect(plan.boxes[0]).toEqual(mask.box);
+
+		const fallback = planCensor([maskedFemale(undefined)], "image", settings);
+		expect(fallback.regions[0]!.mask).toBeUndefined();
+		expect(fallback.regions[0]!.box).not.toEqual(mask.box);
+	});
+
+	it("portal children use the raster as a CSS alpha mask without rounded-rect clipping", () => {
+		const img = document.createElement("img");
+		Object.defineProperty(img, "naturalWidth", { value: 400, configurable: true });
+		Object.defineProperty(img, "naturalHeight", { value: 400, configurable: true });
+		stubRect(img, { left: 0, top: 0, width: 400, height: 400 });
+		document.body.appendChild(img);
+
+		const originalGetContext = HTMLCanvasElement.prototype.getContext;
+		const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+		const originalImageData = globalThis.ImageData;
+		class FakeImageData {
+			constructor(
+				public data: Uint8ClampedArray,
+				public width: number,
+				public height: number,
+			) {}
+		}
+		Object.defineProperty(globalThis, "ImageData", {
+			value: FakeImageData,
+			configurable: true,
+			writable: true,
+		});
+		HTMLCanvasElement.prototype.getContext = (() =>
+			({
+				putImageData: vi.fn(),
+			}) as unknown as CanvasRenderingContext2D) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+		HTMLCanvasElement.prototype.toDataURL = () => "data:image/png;base64,maskpng";
+		try {
+			const mask = makeMask();
+			applyBlurMode(img, [maskedFemale(mask)], "image", {
+				...SETTINGS,
+				coverageMode: "body",
+				smartCensor: false,
+			});
+			const region = portalShadow().querySelector<HTMLElement>(".hb-rr");
+			expect(region).not.toBeNull();
+			expect(region!.className).toContain("hb-rr-mask");
+			expect(region!.style.getPropertyValue("mask-image")).toContain(
+				"data:image/png;base64,maskpng",
+			);
+			expect(region!.style.getPropertyValue("-webkit-mask-image")).toContain(
+				"data:image/png;base64,maskpng",
+			);
+		} finally {
+			HTMLCanvasElement.prototype.getContext = originalGetContext;
+			HTMLCanvasElement.prototype.toDataURL = originalToDataURL;
+			Object.defineProperty(globalThis, "ImageData", {
+				value: originalImageData,
+				configurable: true,
+				writable: true,
+			});
 		}
 	});
 });

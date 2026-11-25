@@ -19,6 +19,8 @@ export interface SessionOptions {
 	yunetModelUrl?: string;
 	/** Absolute extension URL of `models/nsfwjs-u8.onnx` (optional). */
 	nsfwModelUrl?: string;
+	/** Absolute extension URL of `models/yolov8n-seg-fp16.onnx` (optional). */
+	personModelUrl?: string;
 	/**
 	 * OPFS-stored override weights per slot — win over the bundled URLs.
 	 * Same tensor contract required (docs/PLAN.md Phase 4).
@@ -46,6 +48,12 @@ export interface EngineSession {
 	 * surface for no measurable gain.
 	 */
 	nsfwSession: ort.InferenceSession | null;
+	/**
+	 * YOLOv8 person instance-segmentation session, always WASM: it runs at
+	 * most once per media verdict transition, so a second WebGPU session would
+	 * double the wedged-EP surface for no steady-state gain.
+	 */
+	personSession: ort.InferenceSession | null;
 }
 
 // Extension pages report `crossOriginIsolated === true`, so the threaded WASM
@@ -118,6 +126,7 @@ export async function createSession({
 	faceModelUrl,
 	yunetModelUrl,
 	nsfwModelUrl,
+	personModelUrl,
 	modelOverrides,
 }: SessionOptions): Promise<EngineSession> {
 	// Absolute extension URL — a relative path would resolve against the ort
@@ -137,6 +146,7 @@ export async function createSession({
 	const faceSrc = ov.fastface ?? faceModelUrl;
 	const yunetSrc = ov.yunet ?? yunetModelUrl;
 	const nsfwSrc = ov.nsfw ?? nsfwModelUrl;
+	const personSrc = ov.person ?? personModelUrl;
 
 	let backend: EngineBackend = "wasm";
 	let session: ort.InferenceSession;
@@ -184,5 +194,14 @@ export async function createSession({
 			console.warn("[haramblur] nsfw classifier model unavailable:", err);
 		}
 	}
-	return { backend, session, faceSession, yunetSession, nsfwSession };
+	let personSession: ort.InferenceSession | null = null;
+	if (personSrc != null) {
+		try {
+			personSession = await createModel(personSrc, ["wasm"]);
+		} catch (err) {
+			// Missing/corrupt model must not take the detector down with it.
+			console.warn("[haramblur] person segmentation model unavailable:", err);
+		}
+	}
+	return { backend, session, faceSession, yunetSession, nsfwSession, personSession };
 }
