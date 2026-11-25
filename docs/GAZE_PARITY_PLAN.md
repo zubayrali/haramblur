@@ -520,3 +520,47 @@ everything after it.
 | Body-coverage default escalates everything to whole-element | Measured in P2; either raise `escalateAreaPct` or accept whole-element for feed media and say so. |
 | WASM-only devices can't afford Tier 2 | Element-size routing (§1.1) means most media exits at Tier 0; degrade to image-level verdict + whole-element censor on WASM, mirroring upstream's CPU-tier downgrade. |
 | We delete NudeNet and lose a real case | Deletion is gated on the P3 eval showing no loss. Until then it stays on the escalation path. |
+
+---
+
+## 7. Model strategy — selection principles and open decisions
+
+**How the current models were chosen (honest history):** pragmatism, not
+benchmarking — available ONNX exports, small bundle size, licence cleanliness,
+onnxruntime-web compatibility. None were measured against alternatives on our
+distribution. This section replaces that ad-hoc process.
+
+**The governing principle:** no model is ever again selected by recency or
+reputation. Every model decision is made by the eval harness on our stratified
+distribution, with licence + bundle size + WASM/WebGPU latency as hard gates.
+Recency matters only when it moves those numbers.
+
+**Browser-specific constraints that benchmarks ignore:** ONNX export quality
+and opset compatibility with onnxruntime-web; every bundled MB is install size;
+WASM fallback cost for GPU-less users; licence — several strong face/attribute
+model families carry non-commercial or research-only terms that would poison an
+AGPL redistribution. Ultralytics' AGPL weights are compatible with our AGPL
+licence — a rare case where the licence landscape favours us.
+
+**Per-model disposition under the reframe:**
+
+| model | disposition | notes |
+| --- | --- | --- |
+| YOLOv8n-seg person | core localizer — must be best-in-class | evaluate newest-gen small seg (YOLO11n-seg or successor) as a near-drop-in upgrade; decision rides the E0 ≥95% instance-recall gate |
+| gender encoder | THE decision — chosen by P0/E1, not spec sheets | MobileCLIP-class encoders are designed for our size constraint; SigLIP-class too big to bundle but viable as an opt-in accuracy pack |
+| YuNet/FastFace faces | keep — fusion + age for skipChildren | faces aren't the bottleneck; 2021-era but still solid |
+| NudeNet | demoted to escalation-only; deletion candidate | if marginal under the reframe, deleting shrinks bundle and simplifies the pipeline |
+| NSFWJS | escalation-only; deletion candidate | same |
+
+**Open model decisions, each reduced to a measurement:**
+
+1. Gender encoder: P0/E1 three-way comparison + E2 feasibility gates (ONNX
+   export exists, AGPL-clean licence, ≤30 MB bundled, ≤10 ms/crop WebGPU).
+2. Person-seg upgrade: newest-gen small seg vs v8n on instance recall — decided
+   on the same E0 measurement, no separate work.
+3. Tiered distribution (DP3 pack infrastructure is a strategic asset): bundled
+   small default vs opt-in accuracy pack for large encoders/teachers.
+4. NudeNet/NSFWJS keep-or-delete: decided by measured escalation value vs
+   bundle/complexity cost after P3 lands.
+5. Temporal tracking is a model-cost decision, not just UX: per-frame crop
+   classification is unaffordable on WASM video; tracking amortises it.
