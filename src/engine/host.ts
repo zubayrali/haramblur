@@ -15,6 +15,7 @@ import type {
 } from "../shared/protocol";
 import { DEFAULT_SETTINGS, type Settings } from "../shared/settings";
 import { LruCache } from "./cache";
+import { boxIou } from "./fastface";
 import { engineMachine } from "./lifecycle";
 import { mergeDetections, tileRects } from "./nudenet";
 import type { WorkerInMessage, WorkerOutMessage } from "./worker";
@@ -26,6 +27,10 @@ export const INFER_TIMEOUT_MS = 30_000;
 /** Abort a stalled image fetch so it can't hold a queue slot forever. */
 export const FETCH_TIMEOUT_MS = 15_000;
 export const VERDICT_CACHE_CAP = 500;
+/** Minimum time between person segmentation passes on one media element.
+ * Bounded worst-case cost: at the 2 fps sampling cadence at most every third
+ * frame carries a pass, and only when the faces actually moved. */
+export const PERSON_PASS_INTERVAL_MS = 1500;
 
 /** The slice of the Worker interface the host needs (injectable for tests). */
 export interface WorkerHandle {
@@ -56,6 +61,10 @@ export interface EngineHostOptions {
 	bootTimeoutMs?: number;
 	inferTimeoutMs?: number;
 	cacheCap?: number;
+	/** Minimum milliseconds between person segmentation passes per media key. */
+	personPassIntervalMs?: number;
+	/** Clock seam for tests (performance.now default). */
+	now?: () => number;
 }
 
 export interface EngineHost {
@@ -88,17 +97,54 @@ async function fetchBitmap(url: string): Promise<ImageBitmap> {
 	return createImageBitmap(await res.blob());
 }
 
+/**
+ * Minimum face-box IoU for a prior frame's silhouette mask to carry onto the
+ * current frame's matching FACE_FEMALE detection. Faces move little between
+ * frames at the 1–2 fps sampling cadence; faster motion changes the quantized
+ * female-verdict key, which grants a fresh segmentation pass anyway.
+ */
+export const MASK_CARRY_MIN_IOU = 0.2;
+
+/**
+ * Copy silhouette masks from the previous frame's detections onto the current
+ * frame's matching female faces, in place. Person passes are intentionally
+ * rare (one per verdict-key transition), but region rendering happens on every
+ * verdict — without carry-over the silhouette flashes for a single frame and
+ * the censor reverts to the head-ratio heuristic box on every other frame.
+ * Masks are immutable wire data, so sharing the reference is safe.
+ */
+export function carryMasksForward(prior: readonly Detection[], current: Detection[]): void {
+	const maskedFaces = prior.filter((d) => d.label === "FACE_FEMALE" && d.mask != null);
+	if (maskedFaces.length === 0) return;
+	for (const det of current) {
+		if (det.label !== "FACE_FEMALE" || det.mask != null) continue;
+		let best: Detection | null = null;
+		let bestIou = MASK_CARRY_MIN_IOU;
+		for (const candidate of maskedFaces) {
+			const iou = boxIou(det.box, candidate.box);
+			if (iou > bestIou) {
+				bestIou = iou;
+				best = candidate;
+			}
+		}
+		if (best?.mask != null) det.mask = best.mask;
+	}
+}
+
 export function createEngineHost(opts: EngineHostOptions): EngineHost {
 	const spawn = opts.spawnWorker ?? defaultSpawn;
 	const getS = opts.getSettings ?? (async () => DEFAULT_SETTINGS);
 	const bootTimeoutMs = opts.bootTimeoutMs ?? BOOT_TIMEOUT_MS;
 	const inferTimeoutMs = opts.inferTimeoutMs ?? INFER_TIMEOUT_MS;
 	const cacheCap = opts.cacheCap ?? VERDICT_CACHE_CAP;
+	const personPassIntervalMs = opts.personPassIntervalMs ?? PERSON_PASS_INTERVAL_MS;
+	const now = opts.now ?? (() => performance.now());
 	const cache = new LruCache<string, { detections: Detection[]; detailed: boolean }>(cacheCap);
 	/** Latest detections per video/image key, including videos that have no URL cache. */
 	const lastDetections = new LruCache<string, Detection[]>(cacheCap);
-	/** Last female-face verdict key for which a person pass was granted. */
-	const personPassKeys = new LruCache<string, string>(cacheCap);
+	/** Last granted person pass per media key: when it ran and the female-face
+	 * boxes of the frame it ran on (movement baseline for the next grant). */
+	const personPassState = new LruCache<string, { at: number; boxes: Detection["box"][] }>(cacheCap);
 
 	const actor = createActor(engineMachine);
 	let worker: WorkerHandle | null = null;
@@ -246,26 +292,43 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 		});
 
 	/**
-	 * Coarse female-face verdict key. Person passes are granted when this key
-	 * changes, not on every video frame; 5%-of-frame quantization avoids
-	 * re-running segmentation for sub-pixel detector jitter.
+	 * Female faces of a blur verdict, sorted for stable comparison. Person
+	 * passes only make sense when the verdict actually carries a female face —
+	 * the silhouette association target.
 	 */
-	function femaleVerdictKey(
+	function femaleBlurFaces(
 		detections: readonly Detection[] | undefined,
 		settings: Settings,
-	): string | null {
-		if (
-			detections == null ||
-			decide(detections, settings) !== "blur" ||
-			!detections.some((d) => d.label === "FACE_FEMALE")
-		) {
-			return null;
-		}
+	): Detection["box"][] {
+		if (detections == null || decide(detections, settings) !== "blur") return [];
 		return detections
 			.filter((d) => d.label === "FACE_FEMALE")
-			.map((d) => d.box.map((v) => Math.round(v / 0.05)).join(","))
-			.sort()
-			.join("|");
+			.map((d) => d.box)
+			.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+	}
+
+	/**
+	 * Whether two sorted face-box sets differ beyond detector jitter: a face
+	 * count change, or any face whose center or size moved more than 5% of the
+	 * frame. Distance-based comparison avoids the boundary flip-flopping of the
+	 * earlier quantized keys, which granted a segmentation pass every other
+	 * frame whenever a face sat near a quantization edge.
+	 */
+	function facesMoved(a: Detection["box"][], b: Detection["box"][]): boolean {
+		if (a.length !== b.length) return true;
+		for (let i = 0; i < a.length; i++) {
+			const [ax, ay, aw, ah] = a[i]!;
+			const [bx, by, bw, bh] = b[i]!;
+			if (
+				Math.abs(ax + aw / 2 - (bx + bw / 2)) > 0.05 ||
+				Math.abs(ay + ah / 2 - (by + bh / 2)) > 0.05 ||
+				Math.abs(aw - bw) > 0.05 ||
+				Math.abs(ah - bh) > 0.05
+			) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	async function run(request: EngineRequest): Promise<ClassifyResult> {
@@ -285,8 +348,8 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 			request.kind === "image" ? `${request.url}|person:${personUseful ? 1 : 0}` : "";
 		const hit = request.kind === "image" ? cache.get(cacheKey) : undefined;
 		const priorDetections = hit?.detections ?? lastDetections.get(mediaKey);
-		const priorFemaleKey = femaleVerdictKey(priorDetections, s);
-		const priorPersonKey = personPassKeys.get(mediaKey);
+		const priorFemaleFaces = femaleBlurFaces(priorDetections, s);
+		const passState = personPassState.get(mediaKey);
 		if (hit != null) {
 			const decision = decide(hit.detections, s);
 			if (decision === "blur" || hit.detailed) {
@@ -307,15 +370,25 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 					// Cached non-detailed clear: skip the whole pass, run detail only.
 					detections = [...hit.detections];
 					if (tiles.length > 0) {
-						const tiled = await infer(bitmap, true, s, personUseful);
+						const tiled = await infer(bitmap, true, s, false);
 						detections = mergeDetections(detections, tiled);
 						detailed = true;
-						personAttempted = personUseful;
 					}
 				} else {
-					const firstPersonGrant = personUseful && priorDetections == null;
+					// Person passes are expensive, so grants are rare: once per media
+					// element initially, then only when the female faces actually moved
+					// (new scene, subject motion) and never more often than the rate
+					// cap. Carry-forward covers the frames in between. Hysteresis
+					// delays face-carried video blurs by a frame anyway, so waiting for
+					// the first blur verdict costs nothing visually on video.
+					const firstPersonGrant =
+						personUseful && request.kind === "image" && priorDetections == null;
+					const intervalElapsed = passState == null || now() - passState.at >= personPassIntervalMs;
 					const transitionPersonGrant =
-						personUseful && priorFemaleKey != null && priorFemaleKey !== priorPersonKey;
+						personUseful &&
+						priorFemaleFaces.length > 0 &&
+						intervalElapsed &&
+						(passState == null || facesMoved(priorFemaleFaces, passState.boxes));
 					const personGrant = firstPersonGrant || transitionPersonGrant;
 					personAttempted = personGrant;
 					detections = await infer(bitmap, false, s, personGrant);
@@ -323,14 +396,25 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 					// model input may hide faces letterboxed below the model floor, so
 					// re-scan overlapping crops before committing to clear.
 					if (decide(detections, s) === "clear" && tiles.length > 0) {
-						const tiled = await infer(bitmap, true, s, personUseful);
+						// No person flag on detail passes: silhouette segmentation is
+						// owned by the whole-frame grant path (rate-capped, movement-
+						// triggered). Faces small enough to need tiles are too small
+						// for silhouette refinement to matter, and unconditional
+						// person flags here would bypass the cap on every clear frame.
+						const tiled = await infer(bitmap, true, s, false);
 						detections = mergeDetections(detections, tiled);
 						detailed = true;
-						personAttempted = personUseful;
 					}
 				}
 				if (personAttempted) {
-					personPassKeys.set(mediaKey, femaleVerdictKey(detections, s) ?? "__initial__");
+					personPassState.set(mediaKey, { at: now(), boxes: femaleBlurFaces(detections, s) });
+				} else if (
+					request.kind === "frame" &&
+					personUseful &&
+					priorDetections != null &&
+					!detections.some((d) => d.mask != null)
+				) {
+					carryMasksForward(priorDetections, detections);
 				}
 				const verdict: Verdict = {
 					decision: decide(detections, s),
