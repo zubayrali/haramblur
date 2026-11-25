@@ -419,5 +419,11 @@
 	},
 	"packFastfaceInt8Desc": {
 		"message": "1,5 MB niceleyici cinsiyet sınıflandırıcısı — aynı 112px sözleşmesi, daha küçük boyut"
+	},
+	"packFastfaceLargeInt8": {
+		"message": "FastFace large int8 (doğru)"
+	},
+	"packFastfaceLargeInt8Desc": {
+		"message": "3,8 MB kuantize cinsiyet sınıflandırıcı — 128px'te daha büyük omurga, paketli küçük modelden daha yüksek doğruluk"
 	}
 }

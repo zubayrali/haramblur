@@ -233,11 +233,30 @@ const IMAGENET_MEAN = [0.485, 0.456, 0.406] as const;
 const IMAGENET_STD = [0.229, 0.224, 0.225] as const;
 
 /**
- * Convert an `FACE_INPUT_SIZE²` RGBA buffer into the model's NCHW float32
- * tensor (RGB 0..1, ImageNet-normalized).
+ * Derive the model's square input size from its session metadata. FastFace
+ * variants differ — small is 112², large/teacher are 128² — and arbitrary
+ * OPFS overrides are legal, so the tensor contract is read off the loaded
+ * graph rather than assumed. Falls back to `FACE_INPUT_SIZE` (112) when the
+ * shape is missing or implausible.
  */
-export function faceRgbaToTensor(rgba: Uint8ClampedArray): Float32Array {
-	const plane = FACE_INPUT_SIZE * FACE_INPUT_SIZE;
+export function fastfaceInputSizeFromShape(shape: readonly unknown[] | undefined): number {
+	if (shape == null || shape.length !== 4) return FACE_INPUT_SIZE;
+	const h = shape[2];
+	const w = shape[3];
+	if (typeof h !== "number" || typeof w !== "number") return FACE_INPUT_SIZE;
+	if (h !== w || h < 32 || h > 512) return FACE_INPUT_SIZE;
+	return h;
+}
+
+/**
+ * Convert a `size`² RGBA buffer into the model's NCHW float32 tensor
+ * (RGB 0..1, ImageNet-normalized).
+ */
+export function faceRgbaToTensor(
+	rgba: Uint8ClampedArray,
+	size: number = FACE_INPUT_SIZE,
+): Float32Array {
+	const plane = size * size;
 	const out = new Float32Array(3 * plane);
 	for (let i = 0; i < plane; i++) {
 		const s = i * 4;

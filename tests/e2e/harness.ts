@@ -145,7 +145,9 @@ export function writeSettings(page: Page, patch: Record<string, unknown>): Promi
 	return page.evaluate(
 		([base, p, v]) =>
 			new Promise<void>((resolve) => {
-				chrome.storage.sync.set({ "hb-settings": { ...base, ...p }, "hb-settings$": { v } }, () =>
+				const b = base as Record<string, unknown>;
+				const pp = p as Record<string, unknown>;
+				chrome.storage.sync.set({ "hb-settings": { ...b, ...pp }, "hb-settings$": { v } }, () =>
 					resolve(),
 				);
 			}),

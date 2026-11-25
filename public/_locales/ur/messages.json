@@ -419,5 +419,11 @@
 	},
 	"packFastfaceInt8Desc": {
 		"message": "1.5 MB مقدار بند جنسیت درجہ بند — وہی 112px معاہدہ، چھوٹا سائز"
+	},
+	"packFastfaceLargeInt8": {
+		"message": "FastFace large int8 (درست)"
+	},
+	"packFastfaceLargeInt8Desc": {
+		"message": "3.8 ایم بی کوانٹائزڈ صنفی درجہ بند — 128 پکسل پر بڑا بیک بون، شامل چھوٹے ماڈل سے زیادہ درستگی"
 	}
 }
