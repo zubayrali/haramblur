@@ -14,6 +14,21 @@
 	"settings": {
 		"message": "ترتیبات"
 	},
+	"tabGeneral": {
+		"message": "عام"
+	},
+	"tabDetection": {
+		"message": "کھوج"
+	},
+	"tabDisplay": {
+		"message": "نمائش"
+	},
+	"tabModels": {
+		"message": "ماڈلز"
+	},
+	"tabAdvanced": {
+		"message": "ایڈوانسڈ"
+	},
 	"blurryStart": {
 		"message": "لوڈ پر میڈیا کو دھندلا کرنا:"
 	},
@@ -230,6 +245,9 @@
 	},
 	"blurPreviewCaption": {
 		"message": "دھندلا اثر کا لائیو پری ویو"
+	},
+	"censorSection": {
+		"message": "حجب"
 	},
 	"revealSection": {
 		"message": "ظہور"

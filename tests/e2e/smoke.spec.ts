@@ -70,7 +70,21 @@ test("extension loads and popup/options render", async () => {
 
 		await page.goto(`chrome-extension://${extensionId}/options.html`);
 		await expect(page.getByTestId("options-root")).toBeVisible();
+		// The General tab is the default panel.
 		await expect(page.getByTestId("allowlist-editor")).toBeVisible();
+		await expect(page.getByTestId("blur-preview")).not.toBeAttached();
+
+		// Tabs switch panels and deep-link through the URL hash.
+		await page.getByTestId("tab-display").click();
+		await expect(page.getByTestId("blur-preview")).toBeVisible();
+		expect(page.url()).toContain("#display");
+
+		await page.getByTestId("tab-models").click();
+		await expect(page.getByTestId("section-models")).toBeVisible();
+		await expect(page.getByTestId("blur-preview")).not.toBeAttached();
+
+		// A hash in the URL pre-selects the tab on load.
+		await page.goto(`chrome-extension://${extensionId}/options.html#display`);
 		await expect(page.getByTestId("blur-preview")).toBeVisible();
 	} finally {
 		await context.close();
