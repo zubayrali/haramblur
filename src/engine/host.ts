@@ -51,6 +51,8 @@ export interface EngineHostOptions {
 	nsfwModelUrl?: string;
 	/** Absolute extension URL of `models/yolov8n-seg-fp16.onnx` (optional). */
 	personModelUrl?: string;
+	/** FP32 person-segmentation fallback when adapter shader-f16 is absent. */
+	personModelFp32Url?: string;
 	/** Absolute extension URL of the shipped ORT WASM assets (`/ort/`). */
 	wasmBase: string;
 	spawnWorker?: () => WorkerHandle;
@@ -185,6 +187,7 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 			yunetModelUrl: opts.yunetModelUrl,
 			nsfwModelUrl: opts.nsfwModelUrl,
 			personModelUrl: opts.personModelUrl,
+			personModelFp32Url: opts.personModelFp32Url,
 		});
 	}
 
@@ -200,7 +203,7 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 			case "ready":
 				if (initTimer != null) clearTimeout(initTimer);
 				initTimer = null;
-				actor.send({ type: "READY", backend: msg.backend });
+				actor.send({ type: "READY", backend: msg.backend, backends: msg.backends });
 				break;
 			case "initError":
 				crash(msg.error);
@@ -440,6 +443,7 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
 		return {
 			state: snap.value as EngineStatus["state"],
 			backend: snap.context.backend,
+			...(snap.context.backends != null ? { backends: snap.context.backends } : {}),
 			error: snap.context.error ?? undefined,
 		};
 	}

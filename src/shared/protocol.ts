@@ -1,5 +1,6 @@
 import { defineExtensionMessaging } from "@webext-core/messaging";
 import type { DetectionLabel } from "./labels";
+import type { ModelSlot } from "./model-slots";
 import type { Settings } from "./settings";
 
 /** Binary person-instance mask, normalized over the source media. */
@@ -40,6 +41,8 @@ export type EngineBackend = "webgpu" | "wasm";
 export interface EngineStatus {
 	state: EngineState;
 	backend: EngineBackend | null;
+	/** Per-model backend selections when the worker reported them. */
+	backends?: Partial<Record<ModelSlot, EngineBackend>>;
 	error?: string;
 }
 

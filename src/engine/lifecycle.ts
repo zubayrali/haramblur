@@ -7,6 +7,7 @@
  * `engineStatus` from the snapshot.
  */
 import { assign, setup } from "xstate";
+import type { ModelSlot } from "../shared/model-slots";
 import type { EngineBackend } from "../shared/protocol";
 
 /** How many times a dead/failed worker is restarted before `failed` sticks. */
@@ -15,11 +16,12 @@ export const MAX_RESTARTS = 1;
 export interface EngineContext {
 	restarts: number;
 	backend: EngineBackend | null;
+	backends: Partial<Record<ModelSlot, EngineBackend>> | null;
 	error: string | null;
 }
 
 export type EngineEvent =
-	| { type: "READY"; backend: EngineBackend }
+	| { type: "READY"; backend: EngineBackend; backends?: Partial<Record<ModelSlot, EngineBackend>> }
 	| { type: "CRASH"; error: string };
 
 export const engineMachine = setup({
@@ -27,7 +29,7 @@ export const engineMachine = setup({
 }).createMachine({
 	id: "hbEngine",
 	initial: "booting",
-	context: { restarts: 0, backend: null, error: null },
+	context: { restarts: 0, backend: null, backends: null, error: null },
 	states: {
 		booting: {
 			on: {
@@ -35,11 +37,17 @@ export const engineMachine = setup({
 					{
 						guard: ({ event }) => event.backend === "webgpu",
 						target: "ready",
-						actions: assign({ backend: ({ event }) => event.backend }),
+						actions: assign({
+							backend: ({ event }) => event.backend,
+							backends: ({ event }) => event.backends ?? null,
+						}),
 					},
 					{
 						target: "degraded",
-						actions: assign({ backend: ({ event }) => event.backend }),
+						actions: assign({
+							backend: ({ event }) => event.backend,
+							backends: ({ event }) => event.backends ?? null,
+						}),
 					},
 				],
 				CRASH: [

@@ -115,13 +115,20 @@ async function main(): Promise<void> {
 		// booting. The background creates the host eagerly at startup, so the
 		// load overlaps SW wake — measure wall time here.
 		const t0 = Date.now();
-		let status: { state: string; backend: string | null; error?: string };
+		let status: {
+			state: string;
+			backend: string | null;
+			backends?: Record<string, string>;
+			error?: string;
+		};
 		do {
 			status = await call("engineStatus");
 			await new Promise((r) => setTimeout(r, 50));
 		} while (status.state === "booting" && Date.now() - t0 < 60_000);
 		const loadMs = Date.now() - t0;
-		console.log(`engine: state=${status.state} backend=${status.backend} load=${loadMs}ms`);
+		console.log(
+			`engine: state=${status.state} backend=${status.backend} load=${loadMs}ms backends=${JSON.stringify(status.backends ?? {})}`,
+		);
 		if (status.state !== "ready" && status.state !== "degraded") {
 			throw new Error(`engine never became ready: ${status.error ?? status.state}`);
 		}
